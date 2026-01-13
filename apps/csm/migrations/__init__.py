@@ -1,0 +1,3 @@
+"""
+CSM app migrations.
+"""
