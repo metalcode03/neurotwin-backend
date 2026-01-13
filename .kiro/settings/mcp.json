@@ -1,0 +1,34 @@
+{
+  "mcpServers": {
+    "web-search": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@brave/brave-search-mcp-server",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "BRAVE_API_KEY": "BSAugFU-0Zwc1LHjjhmAGqHgHm1LnwH"
+      }
+    },
+    "github": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}",
+        "GIT_USERNAME": "${GIT_USERNAME}"
+      },
+      "disabled": false,
+      "autoApprove": [
+        "git_status",
+        "git_push",
+        "git_read_file",
+        "git_list_files"
+      ]
+    }
+  }
+}
