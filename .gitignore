@@ -1,6 +1,8 @@
 # Python-generated files
 __pycache__/
 000**.py
+00**.py
+0**.py
 
 *.py[oc]
 build/
