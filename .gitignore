@@ -12,3 +12,6 @@ wheels/
 .venv
 .env
 .hypothesis
+
+neuro-frontend
+node_modules
