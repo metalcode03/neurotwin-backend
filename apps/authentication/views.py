@@ -398,3 +398,33 @@ class LogoutAllView(BaseAPIView):
             data={"tokens_invalidated": count},
             message="Logged out from all devices"
         )
+
+
+class CurrentUserView(BaseAPIView):
+    """
+    GET /api/v1/auth/me
+    
+    Get current authenticated user profile.
+    Requirements: 4.4
+    """
+    permission_classes = [IsAuthenticated]
+    
+    @extend_schema(
+        responses={200: OpenApiResponse(description="Current user profile")},
+    )
+    def get(self, request):
+        user = request.user
+        
+        return self.success_response(
+            data={
+                "id": str(user.id),
+                "email": user.email,
+                "username": "",  # Not yet implemented in User model
+                "display_name": "",  # Not yet implemented in User model
+                "profile_image": None,  # Not yet implemented in User model
+                "is_verified": user.is_verified,
+                "is_active": user.is_active,
+                "created_at": user.created_at.isoformat(),
+                "oauth_provider": user.oauth_provider,
+            }
+        )

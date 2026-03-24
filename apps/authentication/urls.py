@@ -16,6 +16,7 @@ from .views import (
     OAuthCallbackView,
     LogoutView,
     LogoutAllView,
+    CurrentUserView,
 )
 
 app_name = 'auth'
@@ -30,6 +31,9 @@ urlpatterns = [
     path('refresh', RefreshTokenView.as_view(), name='refresh'),
     path('logout', LogoutView.as_view(), name='logout'),
     path('logout-all', LogoutAllView.as_view(), name='logout-all'),
+    
+    # Current user
+    path('me', CurrentUserView.as_view(), name='current-user'),
     
     # Password reset
     path('password-reset', PasswordResetRequestView.as_view(), name='password-reset'),

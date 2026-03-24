@@ -9,7 +9,9 @@ from rest_framework.permissions import IsAuthenticated
 
 from core.api.views import BaseAPIView
 from core.api.permissions import IsVerifiedUser, HasTwin
-from .services import IntegrationService, WorkflowEngine
+# Temporarily commented out for Phase 1 checkpoint - Phase 2 will implement API layer
+# from .services import IntegrationService, WorkflowEngine
+from .services import IntegrationService, WorkflowEngine  # Legacy imports
 from .dataclasses import (
     ConnectIntegrationRequest,
     UpdatePermissionsRequest,
