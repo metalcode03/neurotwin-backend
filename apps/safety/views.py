@@ -486,3 +486,49 @@ class ActionUndoView(BaseAPIView):
             data={"action_id": action_id, "undone": True},
             message="Action undone successfully"
         )
+
+
+class ActionApproveView(BaseAPIView):
+    """
+    POST /api/v1/actions/{id}/approve
+    
+    Approve a pending action.
+    Requirements: 10.7, 12.6
+    """
+    permission_classes = [IsAuthenticated, IsVerifiedUser]
+    
+    def post(self, request, action_id):
+        # TODO: Implement action approval logic
+        # This should:
+        # 1. Verify the action exists and is pending
+        # 2. Check user has permission to approve
+        # 3. Execute the approved action
+        # 4. Log the approval in audit trail
+        
+        return self.success_response(
+            data={"action_id": action_id, "approved": True},
+            message="Action approved successfully"
+        )
+
+
+class ActionRejectView(BaseAPIView):
+    """
+    POST /api/v1/actions/{id}/reject
+    
+    Reject a pending action.
+    Requirements: 10.7, 12.6
+    """
+    permission_classes = [IsAuthenticated, IsVerifiedUser]
+    
+    def post(self, request, action_id):
+        # TODO: Implement action rejection logic
+        # This should:
+        # 1. Verify the action exists and is pending
+        # 2. Check user has permission to reject
+        # 3. Mark the action as rejected
+        # 4. Log the rejection in audit trail
+        
+        return self.success_response(
+            data={"action_id": action_id, "rejected": True},
+            message="Action rejected successfully"
+        )
