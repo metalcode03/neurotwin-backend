@@ -80,12 +80,13 @@ class QuestionnaireResponse:
         Check if the questionnaire response has minimum required data.
         
         Returns True if all three sections have at least some data.
+        This is a lenient check - we just need non-empty dictionaries.
         """
-        return bool(
-            self.communication_style and 
-            self.decision_patterns and 
-            self.preferences
-        )
+        has_comm = bool(self.communication_style and len(self.communication_style) > 0)
+        has_decision = bool(self.decision_patterns and len(self.decision_patterns) > 0)
+        has_prefs = bool(self.preferences and len(self.preferences) > 0)
+        
+        return has_comm and has_decision and has_prefs
 
 
 @dataclass
@@ -252,6 +253,7 @@ class OnboardingQuestionnaire:
                         'text': 'What words or phrases do you commonly use?',
                         'type': 'text_list',
                         'default': [],
+                        'required': False,
                     },
                 ],
             },
