@@ -287,3 +287,133 @@ class TwinReactivateView(BaseAPIView):
                 code="REACTIVATION_FAILED",
                 status_code=status.HTTP_400_BAD_REQUEST
             )
+
+
+
+class KillSwitchActivateView(BaseAPIView):
+    """
+    POST /api/v1/twin/kill-switch/activate
+    
+    Activate kill-switch to disable all Twin automations.
+    Requirements: Safety principles
+    """
+    permission_classes = [IsAuthenticated, IsVerifiedUser]
+    
+    def post(self, request):
+        from .services.kill_switch import KillSwitchService
+        
+        reason = request.data.get('reason', 'User-initiated')
+        ip_address = self._get_client_ip(request)
+        user_agent = request.META.get('HTTP_USER_AGENT', '')
+        
+        try:
+            twin = KillSwitchService.activate_kill_switch(
+                user=request.user,
+                reason=reason,
+                ip_address=ip_address,
+                user_agent=user_agent
+            )
+            
+            # Optionally disable all workflows
+            if request.data.get('disable_workflows', False):
+                disabled_count = KillSwitchService.disable_all_twin_automations(request.user)
+            else:
+                disabled_count = 0
+            
+            return self.success_response(
+                data={
+                    'twin_id': str(twin.id),
+                    'kill_switch_active': twin.kill_switch_active,
+                    'workflows_disabled': disabled_count,
+                },
+                message='Kill-switch activated. All Twin automations are now disabled.'
+            )
+            
+        except ValueError as e:
+            return self.error_response(
+                message=str(e),
+                code='ACTIVATION_FAILED',
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+    
+    def _get_client_ip(self, request) -> str:
+        """Get client IP address from request."""
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip or ''
+
+
+class KillSwitchDeactivateView(BaseAPIView):
+    """
+    POST /api/v1/twin/kill-switch/deactivate
+    
+    Deactivate kill-switch to re-enable Twin automations.
+    Requirements: Safety principles
+    """
+    permission_classes = [IsAuthenticated, IsVerifiedUser]
+    
+    def post(self, request):
+        from .services.kill_switch import KillSwitchService
+        
+        reason = request.data.get('reason', 'User-initiated')
+        ip_address = self._get_client_ip(request)
+        user_agent = request.META.get('HTTP_USER_AGENT', '')
+        
+        try:
+            twin = KillSwitchService.deactivate_kill_switch(
+                user=request.user,
+                reason=reason,
+                ip_address=ip_address,
+                user_agent=user_agent
+            )
+            
+            return self.success_response(
+                data={
+                    'twin_id': str(twin.id),
+                    'kill_switch_active': twin.kill_switch_active,
+                },
+                message='Kill-switch deactivated. Twin automations are now enabled.'
+            )
+            
+        except ValueError as e:
+            return self.error_response(
+                message=str(e),
+                code='DEACTIVATION_FAILED',
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+    
+    def _get_client_ip(self, request) -> str:
+        """Get client IP address from request."""
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip or ''
+
+
+class KillSwitchStatusView(BaseAPIView):
+    """
+    GET /api/v1/twin/kill-switch/status
+    
+    Get current kill-switch status.
+    Requirements: Safety principles
+    """
+    permission_classes = [IsAuthenticated, IsVerifiedUser]
+    
+    def get(self, request):
+        from .services.kill_switch import KillSwitchService
+        
+        status_data = KillSwitchService.get_kill_switch_status(request.user)
+        
+        # Add blocked requests count
+        blocked_count = KillSwitchService.get_blocked_requests_count(
+            request.user,
+            since_hours=24
+        )
+        status_data['blocked_requests_24h'] = blocked_count
+        
+        return self.success_response(data=status_data)
