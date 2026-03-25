@@ -23,6 +23,50 @@ DEBUG = os.getenv('DEBUG', 'True').lower() in ('true', '1', 'yes')
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
 
+# CORS Configuration
+# Allow frontend to communicate with backend API
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:3000',      # Next.js dev server (primary)
+    'http://localhost:5673',      # Alternative frontend port
+    'http://127.0.0.1:3000',      # Localhost alternative
+    'http://127.0.0.1:5673',      # Localhost alternative
+]
+
+# Production domain (will be added when deployed)
+if not DEBUG:
+    CORS_ALLOWED_ORIGINS.append('https://neurotwinai.com')
+
+# Allow credentials (cookies, authorization headers)
+CORS_ALLOW_CREDENTIALS = True
+
+# Allow common headers
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
+
+# Allow common methods
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
+# Cache preflight requests for 1 hour
+CORS_PREFLIGHT_MAX_AGE = 3600
+
+
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -33,12 +77,14 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     # Third-party apps
+    'corsheaders',  # CORS headers for frontend communication
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
     'drf_spectacular',  # OpenAPI schema generation
     'django_q',  # Async task queue (Requirements: 14.5)
     # Local apps
+    'apps.core',  # Core utilities and management commands
     'apps.authentication',
     'apps.subscription',
     'apps.csm',
@@ -55,12 +101,16 @@ AUTH_USER_MODEL = 'authentication.User'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',  # CORS middleware (must be before CommonMiddleware)
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Twin safety middleware
+    'apps.automation.middleware.KillSwitchMiddleware',  # Check kill-switch first
+    'apps.automation.middleware.TwinPermissionMiddleware',  # Then check permissions
 ]
 
 ROOT_URLCONF = 'neurotwin.urls'
@@ -113,6 +163,61 @@ else:
     }
 
 
+# Cache Configuration
+# Requirements: 17.1, 17.2, 17.3, 17.5
+# Use Redis in production, local memory for development/testing
+REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
+REDIS_PORT = os.getenv('REDIS_PORT', '6379')
+REDIS_DB = os.getenv('REDIS_DB', '0')
+REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', '')
+REDIS_USE_SSL = os.getenv('REDIS_USE_SSL', 'False').lower() in ('true', '1', 'yes')
+USE_REDIS = os.getenv('USE_REDIS', 'False').lower() in ('true', '1', 'yes')
+
+if 'pytest' in sys.modules or 'test' in sys.argv or not USE_REDIS:
+    # Use local memory cache for testing or when Redis is disabled
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'neurotwin-cache',
+            'TIMEOUT': 300,
+        }
+    }
+else:
+    # Use Redis for production/development when enabled
+    # AWS ElastiCache Serverless: neurotwinai (arn:aws:elasticache:us-east-1:540821623893:serverlesscache:neurotwinai)
+    
+    # Build Redis connection URL
+    redis_url = f'redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}'
+    if REDIS_PASSWORD:
+        redis_url = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}'
+    
+    # Add SSL/TLS for AWS ElastiCache
+    if REDIS_USE_SSL:
+        redis_url = redis_url.replace('redis://', 'rediss://')
+    
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': redis_url,
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                'SOCKET_CONNECT_TIMEOUT': int(os.getenv('REDIS_SOCKET_CONNECT_TIMEOUT', '5')),
+                'SOCKET_TIMEOUT': int(os.getenv('REDIS_SOCKET_TIMEOUT', '5')),
+                'CONNECTION_POOL_KWARGS': {
+                    'max_connections': int(os.getenv('REDIS_CONNECTION_POOL_MAX_CONNECTIONS', '50')),
+                    'retry_on_timeout': True,
+                },
+                'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
+                'SERIALIZER': 'django_redis.serializers.json.JSONSerializer',
+                # AWS ElastiCache specific settings
+                'IGNORE_EXCEPTIONS': False,  # Raise exceptions for debugging
+            },
+            'KEY_PREFIX': 'neurotwin',
+            'TIMEOUT': 300,  # Default timeout: 5 minutes
+        }
+    }
+
+
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
 
@@ -155,6 +260,9 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
+# Frontend URL (used for OAuth callbacks and redirects)
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
+
 # AI/ML Configuration
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY', '')
 
@@ -196,9 +304,12 @@ REST_FRAMEWORK = {
         'anon': '100/hour',
         'user': '1000/hour',
         'auth': '20/minute',  # Stricter rate limit for auth endpoints
+        'installation': '10/hour',  # Installation rate limit (Requirement 18.7)
+        'api': '1000/hour',  # General API rate limit (Requirement 18.7)
+        'api_burst': '100/min',  # Burst protection
     },
-    # Custom exception handler for consistent error responses (Requirement 13.4)
-    'EXCEPTION_HANDLER': 'core.api.exceptions.custom_exception_handler',
+    # Custom exception handler for consistent error responses (Requirement 13.4, 18.7)
+    'EXCEPTION_HANDLER': 'apps.automation.exception_handlers.custom_exception_handler',
     # API versioning (Requirement 13.6)
     'DEFAULT_VERSIONING_CLASS': 'rest_framework.versioning.URLPathVersioning',
     'DEFAULT_VERSION': 'v1',
@@ -257,25 +368,65 @@ SIMPLE_JWT = {
 
 # Django-Q2 Configuration
 # Requirements: 14.5 - Memory writes shall be asynchronous
-Q_CLUSTER = {
-    'name': 'neurotwin',
-    'workers': int(os.getenv('Q_WORKERS', '4')),
-    'recycle': 500,
-    'timeout': 300,
-    'compress': True,
-    'save_limit': 250,
-    'queue_limit': 500,
-    'cpu_affinity': 1,
-    'label': 'Django Q',
-    'orm': 'default',  # Use Django ORM as broker
-    'retry': 300,
-    'max_attempts': 3,
-    'ack_failures': True,
-    'poll': 1,
-    'guard_cycle': 5,
-    'catch_up': False,
-}
-
-# For testing, use synchronous execution
+# Use Redis as broker for production, Django ORM for testing
 if 'pytest' in sys.modules or 'test' in sys.argv:
-    Q_CLUSTER['sync'] = True
+    # Use Django ORM for testing (synchronous)
+    Q_CLUSTER = {
+        'name': 'neurotwin',
+        'workers': 1,
+        'timeout': 300,
+        'retry': 300,
+        'queue_limit': 50,
+        'bulk': 10,
+        'orm': 'default',
+        'sync': True,  # Synchronous for testing
+    }
+elif USE_REDIS:
+    # Use Redis as broker for production/development when enabled
+    Q_CLUSTER = {
+        'name': 'neurotwin',
+        'workers': int(os.getenv('Q_WORKERS', '4')),
+        'recycle': 500,
+        'timeout': 300,
+        'compress': True,
+        'save_limit': 250,
+        'queue_limit': 500,
+        'cpu_affinity': 1,
+        'label': 'Django Q',
+        'redis': {
+            'host': REDIS_HOST,
+            'port': int(REDIS_PORT),
+            'db': int(REDIS_DB) + 1,  # Use separate DB for task queue
+            'password': REDIS_PASSWORD if REDIS_PASSWORD else None,
+            'socket_timeout': int(os.getenv('REDIS_SOCKET_TIMEOUT', '5')),
+            'charset': 'utf-8',
+            'errors': 'strict',
+            'unix_socket_path': None,
+        },
+        'retry': 300,
+        'max_attempts': 3,
+        'ack_failures': True,
+        'poll': 1,
+        'guard_cycle': 5,
+        'catch_up': False,
+    }
+else:
+    # Use Django ORM when Redis is disabled
+    Q_CLUSTER = {
+        'name': 'neurotwin',
+        'workers': int(os.getenv('Q_WORKERS', '4')),
+        'recycle': 500,
+        'timeout': 300,
+        'compress': True,
+        'save_limit': 250,
+        'queue_limit': 500,
+        'cpu_affinity': 1,
+        'label': 'Django Q',
+        'orm': 'default',
+        'retry': 300,
+        'max_attempts': 3,
+        'ack_failures': True,
+        'poll': 1,
+        'guard_cycle': 5,
+        'catch_up': False,
+    }
