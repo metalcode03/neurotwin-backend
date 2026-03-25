@@ -94,6 +94,107 @@ class CSMProfileView(BaseAPIView):
             )
 
 
+class CSMPersonalityProfileView(BaseAPIView):
+    """
+    GET /api/v1/csm/profile
+    
+    Get personality profile in frontend-friendly format.
+    Transforms CSM profile data into simplified PersonalityProfile structure.
+    Requirements: 4.1, 4.6
+    """
+    permission_classes = [IsAuthenticated, IsVerifiedUser]
+    
+    def get(self, request):
+        csm_service = CSMService()
+        profile = csm_service.get_profile(str(request.user.id))
+        
+        if not profile:
+            return self.error_response(
+                message="No CSM profile found. Complete onboarding to create your profile.",
+                status_code=404
+            )
+        
+        # Transform CSM profile to PersonalityProfile format
+        profile_data = profile.get_profile_data()
+        
+        # Extract traits as readable strings
+        traits = []
+        personality = profile_data.personality
+        if personality.openness > 0.6:
+            traits.append("Creative & Open-minded")
+        elif personality.openness < 0.4:
+            traits.append("Practical & Traditional")
+        
+        if personality.conscientiousness > 0.6:
+            traits.append("Organized & Disciplined")
+        elif personality.conscientiousness < 0.4:
+            traits.append("Flexible & Spontaneous")
+        
+        if personality.extraversion > 0.6:
+            traits.append("Outgoing & Energetic")
+        elif personality.extraversion < 0.4:
+            traits.append("Reserved & Thoughtful")
+        
+        if personality.agreeableness > 0.6:
+            traits.append("Cooperative & Empathetic")
+        elif personality.agreeableness < 0.4:
+            traits.append("Analytical & Direct")
+        
+        # Extract tone preferences
+        tone_prefs = []
+        tone = profile_data.tone
+        if tone.formality > 0.6:
+            tone_prefs.append("Formal & Professional")
+        elif tone.formality < 0.4:
+            tone_prefs.append("Casual & Relaxed")
+        
+        if tone.warmth > 0.6:
+            tone_prefs.append("Warm & Friendly")
+        elif tone.warmth < 0.4:
+            tone_prefs.append("Neutral & Reserved")
+        
+        if tone.directness > 0.6:
+            tone_prefs.append("Direct & Clear")
+        elif tone.directness < 0.4:
+            tone_prefs.append("Diplomatic & Nuanced")
+        
+        if tone.humor_level > 0.5:
+            tone_prefs.append("Humorous & Lighthearted")
+        
+        # Format communication style
+        comm = profile_data.communication
+        comm_style = f"{comm.response_length.capitalize()} responses with {comm.emoji_usage} emoji usage"
+        
+        # Extract decision patterns
+        decision_patterns = []
+        decision = profile_data.decision_style
+        if decision.risk_tolerance > 0.6:
+            decision_patterns.append("Comfortable with calculated risks")
+        elif decision.risk_tolerance < 0.4:
+            decision_patterns.append("Prefers safe and proven approaches")
+        
+        if decision.speed_vs_accuracy > 0.6:
+            decision_patterns.append("Values speed and quick decisions")
+        elif decision.speed_vs_accuracy < 0.4:
+            decision_patterns.append("Values thoroughness and accuracy")
+        
+        if decision.collaboration_preference > 0.6:
+            decision_patterns.append("Prefers collaborative decision-making")
+        elif decision.collaboration_preference < 0.4:
+            decision_patterns.append("Prefers independent decision-making")
+        
+        return self.success_response(
+            data={
+                "userId": str(request.user.id),
+                "traits": traits,
+                "tonePreferences": tone_prefs,
+                "communicationStyle": comm_style,
+                "decisionPatterns": decision_patterns,
+                "updatedAt": profile.updated_at.isoformat(),
+            }
+        )
+
+
 class CSMHistoryView(BaseAPIView):
     """
     GET /api/v1/csm/history
