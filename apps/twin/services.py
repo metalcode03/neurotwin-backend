@@ -126,9 +126,28 @@ class TwinService:
         if existing_twin:
             raise ValueError(f"User {user_id} already has an active Twin")
         
+        # Log the responses for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Creating twin for user {user_id}")
+        logger.info(f"Responses - comm_style keys: {list(responses.communication_style.keys()) if responses.communication_style else 'None'}")
+        logger.info(f"Responses - decision keys: {list(responses.decision_patterns.keys()) if responses.decision_patterns else 'None'}")
+        logger.info(f"Responses - preferences keys: {list(responses.preferences.keys()) if responses.preferences else 'None'}")
+        
         # Validate questionnaire responses
         if not responses.is_complete():
-            raise ValueError("Questionnaire responses are incomplete")
+            # Provide detailed error message about what's missing
+            missing = []
+            if not responses.communication_style or len(responses.communication_style) == 0:
+                missing.append("communication_style")
+            if not responses.decision_patterns or len(responses.decision_patterns) == 0:
+                missing.append("decision_patterns")
+            if not responses.preferences or len(responses.preferences) == 0:
+                missing.append("preferences")
+            
+            error_msg = f"Questionnaire responses are incomplete. Missing sections: {', '.join(missing)}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
         
         # Convert to CSM questionnaire response format
         csm_responses = CSMQuestionnaireResponse(
@@ -365,3 +384,483 @@ class TwinService:
             'created_at': twin.created_at.isoformat(),
             'updated_at': twin.updated_at.isoformat(),
         }
+
+
+
+class AuditLogService:
+    """
+    Service for creating and managing audit logs.
+    
+    Provides structured logging for Twin actions, installations,
+    uninstallations, and permission-related events.
+    
+    Requirements: 8.2, 18.6
+    """
+    
+    @staticmethod
+    def log_twin_action(
+        user_id: str,
+        resource_type: str,
+        resource_id: str,
+        action: str,
+        result: str,
+        details: Optional[Dict[str, Any]] = None,
+        cognitive_blend_value: Optional[int] = None,
+        permission_flag: bool = False,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None
+    ) -> 'AuditLog':
+        """
+        Log a Twin-initiated action.
+        
+        Requirements: 8.2, 18.6
+        
+        Args:
+            user_id: UUID of the user
+            resource_type: Type of resource (e.g., 'Workflow', 'Integration')
+            resource_id: ID of the resource affected
+            action: Action performed (create, update, delete, execute, etc.)
+            result: Result of the action (success, failure, denied, pending)
+            details: Additional context as dictionary
+            cognitive_blend_value: Cognitive blend at time of action
+            permission_flag: Whether permission was granted
+            ip_address: IP address of the request
+            user_agent: User agent string
+            
+        Returns:
+            Created AuditLog instance
+        """
+        from .models import AuditLog
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        # Create audit log entry
+        audit_log = AuditLog.objects.create(
+            user_id=user_id,
+            event_type='twin_action',
+            resource_type=resource_type,
+            resource_id=resource_id,
+            action=action,
+            result=result,
+            details=details or {},
+            initiated_by_twin=True,
+            cognitive_blend_value=cognitive_blend_value,
+            permission_flag=permission_flag,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        
+        # Structured logging for monitoring
+        logger.info(
+            'Twin action logged',
+            extra={
+                'audit_log_id': str(audit_log.id),
+                'user_id': user_id,
+                'event_type': 'twin_action',
+                'resource_type': resource_type,
+                'resource_id': resource_id,
+                'action': action,
+                'result': result,
+                'cognitive_blend': cognitive_blend_value,
+                'permission_granted': permission_flag,
+                'requires_attention': audit_log.requires_attention,
+            }
+        )
+        
+        return audit_log
+    
+    @staticmethod
+    def log_installation(
+        user_id: str,
+        integration_type_id: str,
+        integration_id: str,
+        result: str,
+        details: Optional[Dict[str, Any]] = None,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None
+    ) -> 'AuditLog':
+        """
+        Log an integration installation event.
+        
+        Requirements: 18.6
+        
+        Args:
+            user_id: UUID of the user
+            integration_type_id: ID of the integration type
+            integration_id: ID of the created integration
+            result: Result of installation (success, failure)
+            details: Additional context (OAuth scopes, errors, etc.)
+            ip_address: IP address of the request
+            user_agent: User agent string
+            
+        Returns:
+            Created AuditLog instance
+        """
+        from .models import AuditLog
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        audit_log = AuditLog.objects.create(
+            user_id=user_id,
+            event_type='installation',
+            resource_type='Integration',
+            resource_id=integration_id,
+            action='create',
+            result=result,
+            details={
+                'integration_type_id': integration_type_id,
+                **(details or {})
+            },
+            initiated_by_twin=False,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        
+        logger.info(
+            'Integration installation logged',
+            extra={
+                'audit_log_id': str(audit_log.id),
+                'user_id': user_id,
+                'event_type': 'installation',
+                'integration_type_id': integration_type_id,
+                'integration_id': integration_id,
+                'result': result,
+            }
+        )
+        
+        return audit_log
+    
+    @staticmethod
+    def log_uninstallation(
+        user_id: str,
+        integration_type_id: str,
+        integration_id: str,
+        result: str,
+        details: Optional[Dict[str, Any]] = None,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None
+    ) -> 'AuditLog':
+        """
+        Log an integration uninstallation event.
+        
+        Requirements: 18.6
+        
+        Args:
+            user_id: UUID of the user
+            integration_type_id: ID of the integration type
+            integration_id: ID of the deleted integration
+            result: Result of uninstallation (success, failure)
+            details: Additional context (disabled workflows, errors, etc.)
+            ip_address: IP address of the request
+            user_agent: User agent string
+            
+        Returns:
+            Created AuditLog instance
+        """
+        from .models import AuditLog
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        audit_log = AuditLog.objects.create(
+            user_id=user_id,
+            event_type='uninstallation',
+            resource_type='Integration',
+            resource_id=integration_id,
+            action='delete',
+            result=result,
+            details={
+                'integration_type_id': integration_type_id,
+                **(details or {})
+            },
+            initiated_by_twin=False,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        
+        logger.info(
+            'Integration uninstallation logged',
+            extra={
+                'audit_log_id': str(audit_log.id),
+                'user_id': user_id,
+                'event_type': 'uninstallation',
+                'integration_type_id': integration_type_id,
+                'integration_id': integration_id,
+                'result': result,
+            }
+        )
+        
+        return audit_log
+    
+    @staticmethod
+    def log_permission_denied(
+        user_id: str,
+        resource_type: str,
+        resource_id: str,
+        action: str,
+        reason: str,
+        details: Optional[Dict[str, Any]] = None,
+        initiated_by_twin: bool = False,
+        cognitive_blend_value: Optional[int] = None,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None
+    ) -> 'AuditLog':
+        """
+        Log a permission denied event.
+        
+        Requirements: 8.2, 18.6
+        
+        Args:
+            user_id: UUID of the user
+            resource_type: Type of resource access was denied for
+            resource_id: ID of the resource
+            action: Action that was denied
+            reason: Reason for denial
+            details: Additional context
+            initiated_by_twin: Whether this was a Twin-initiated action
+            cognitive_blend_value: Cognitive blend if Twin-initiated
+            ip_address: IP address of the request
+            user_agent: User agent string
+            
+        Returns:
+            Created AuditLog instance
+        """
+        from .models import AuditLog
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        audit_log = AuditLog.objects.create(
+            user_id=user_id,
+            event_type='permission_denied',
+            resource_type=resource_type,
+            resource_id=resource_id,
+            action=action,
+            result='denied',
+            details={
+                'reason': reason,
+                **(details or {})
+            },
+            initiated_by_twin=initiated_by_twin,
+            cognitive_blend_value=cognitive_blend_value,
+            permission_flag=False,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        
+        logger.warning(
+            'Permission denied',
+            extra={
+                'audit_log_id': str(audit_log.id),
+                'user_id': user_id,
+                'event_type': 'permission_denied',
+                'resource_type': resource_type,
+                'resource_id': resource_id,
+                'action': action,
+                'reason': reason,
+                'initiated_by_twin': initiated_by_twin,
+                'cognitive_blend': cognitive_blend_value,
+            }
+        )
+        
+        return audit_log
+    
+    @staticmethod
+    def log_workflow_modification(
+        user_id: str,
+        workflow_id: str,
+        action: str,
+        result: str,
+        changes_made: Dict[str, Any],
+        reasoning: Optional[str] = None,
+        initiated_by_twin: bool = False,
+        cognitive_blend_value: Optional[int] = None,
+        permission_flag: bool = False,
+        required_confirmation: bool = False,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None
+    ) -> 'AuditLog':
+        """
+        Log a workflow modification event.
+        
+        Requirements: 8.2, 8.6, 8.7
+        
+        Args:
+            user_id: UUID of the user
+            workflow_id: ID of the workflow
+            action: Action performed (create, update, delete)
+            result: Result of the action
+            changes_made: Dictionary of changes (before/after values)
+            reasoning: Reasoning for Twin modifications
+            initiated_by_twin: Whether this was a Twin-initiated modification
+            cognitive_blend_value: Cognitive blend at time of modification
+            permission_flag: Whether permission was granted
+            required_confirmation: Whether confirmation was required
+            ip_address: IP address of the request
+            user_agent: User agent string
+            
+        Returns:
+            Created AuditLog instance
+        """
+        from .models import AuditLog
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        audit_log = AuditLog.objects.create(
+            user_id=user_id,
+            event_type='workflow_modification',
+            resource_type='Workflow',
+            resource_id=workflow_id,
+            action=action,
+            result=result,
+            details={
+                'changes_made': changes_made,
+                'reasoning': reasoning,
+                'required_confirmation': required_confirmation,
+            },
+            initiated_by_twin=initiated_by_twin,
+            cognitive_blend_value=cognitive_blend_value,
+            permission_flag=permission_flag,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        
+        logger.info(
+            'Workflow modification logged',
+            extra={
+                'audit_log_id': str(audit_log.id),
+                'user_id': user_id,
+                'event_type': 'workflow_modification',
+                'workflow_id': workflow_id,
+                'action': action,
+                'result': result,
+                'initiated_by_twin': initiated_by_twin,
+                'cognitive_blend': cognitive_blend_value,
+                'permission_granted': permission_flag,
+                'required_confirmation': required_confirmation,
+            }
+        )
+        
+        return audit_log
+    
+    @staticmethod
+    def log_kill_switch(
+        user_id: str,
+        twin_id: str,
+        activated: bool,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None
+    ) -> 'AuditLog':
+        """
+        Log kill switch activation or deactivation.
+        
+        Requirements: 8.2, 18.6
+        
+        Args:
+            user_id: UUID of the user
+            twin_id: ID of the Twin
+            activated: True if activating, False if deactivating
+            ip_address: IP address of the request
+            user_agent: User agent string
+            
+        Returns:
+            Created AuditLog instance
+        """
+        from .models import AuditLog
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        event_type = 'kill_switch_activated' if activated else 'kill_switch_deactivated'
+        
+        audit_log = AuditLog.objects.create(
+            user_id=user_id,
+            event_type=event_type,
+            resource_type='Twin',
+            resource_id=twin_id,
+            action='update',
+            result='success',
+            details={
+                'kill_switch_active': activated,
+            },
+            initiated_by_twin=False,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        
+        logger.warning(
+            f'Kill switch {"activated" if activated else "deactivated"}',
+            extra={
+                'audit_log_id': str(audit_log.id),
+                'user_id': user_id,
+                'event_type': event_type,
+                'twin_id': twin_id,
+                'activated': activated,
+            }
+        )
+        
+        return audit_log
+    
+    @staticmethod
+    def log_cognitive_blend_change(
+        user_id: str,
+        twin_id: str,
+        old_value: int,
+        new_value: int,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None
+    ) -> 'AuditLog':
+        """
+        Log cognitive blend value change.
+        
+        Requirements: 8.2
+        
+        Args:
+            user_id: UUID of the user
+            twin_id: ID of the Twin
+            old_value: Previous cognitive blend value
+            new_value: New cognitive blend value
+            ip_address: IP address of the request
+            user_agent: User agent string
+            
+        Returns:
+            Created AuditLog instance
+        """
+        from .models import AuditLog
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        audit_log = AuditLog.objects.create(
+            user_id=user_id,
+            event_type='cognitive_blend_changed',
+            resource_type='Twin',
+            resource_id=twin_id,
+            action='update',
+            result='success',
+            details={
+                'old_value': old_value,
+                'new_value': new_value,
+            },
+            initiated_by_twin=False,
+            cognitive_blend_value=new_value,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        
+        logger.info(
+            'Cognitive blend changed',
+            extra={
+                'audit_log_id': str(audit_log.id),
+                'user_id': user_id,
+                'event_type': 'cognitive_blend_changed',
+                'twin_id': twin_id,
+                'old_value': old_value,
+                'new_value': new_value,
+            }
+        )
+        
+        return audit_log
