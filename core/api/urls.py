@@ -15,8 +15,11 @@ v1_patterns = [
     path('twin/', include('apps.twin.urls', namespace='twin')),
     path('csm/', include('apps.csm.urls', namespace='csm')),
     path('subscription/', include('apps.subscription.urls', namespace='subscription')),
-    path('integrations/', include('apps.automation.urls_integrations', namespace='integrations')),
-    path('workflows/', include('apps.automation.urls_workflows', namespace='workflows')),
+    # Dynamic App Marketplace API endpoints
+    path('', include('apps.automation.urls', namespace='automation')),
+    # Legacy automation endpoints (kept for backward compatibility)
+    # path('integrations/', include('apps.automation.urls_integrations', namespace='integrations')),
+    # path('workflows/', include('apps.automation.urls_workflows', namespace='workflows')),
     path('voice/', include('apps.voice.urls', namespace='voice')),
     path('permissions/', include('apps.safety.urls_permissions', namespace='permissions')),
     path('audit/', include('apps.safety.urls_audit', namespace='audit')),
