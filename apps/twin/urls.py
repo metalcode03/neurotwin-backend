@@ -13,6 +13,9 @@ from .views import (
     CognitiveBlendView,
     TwinDeactivateView,
     TwinReactivateView,
+    KillSwitchActivateView,
+    KillSwitchDeactivateView,
+    KillSwitchStatusView,
 )
 
 app_name = 'twin'
@@ -28,4 +31,9 @@ urlpatterns = [
     path('blend', CognitiveBlendView.as_view(), name='blend'),
     path('deactivate', TwinDeactivateView.as_view(), name='deactivate'),
     path('reactivate', TwinReactivateView.as_view(), name='reactivate'),
+    
+    # Kill-switch
+    path('kill-switch/activate', KillSwitchActivateView.as_view(), name='kill-switch-activate'),
+    path('kill-switch/deactivate', KillSwitchDeactivateView.as_view(), name='kill-switch-deactivate'),
+    path('kill-switch/status', KillSwitchStatusView.as_view(), name='kill-switch-status'),
 ]
