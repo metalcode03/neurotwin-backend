@@ -1,13 +1,17 @@
 """
-Middleware for Twin safety controls.
+Middleware for Twin safety controls and authentication rate limiting.
 
-Provides permission validation for Twin-initiated requests.
-Requirements: 8.1, 12.7
+Provides permission validation for Twin-initiated requests and rate limiting
+for authentication endpoints.
+Requirements: 8.1, 12.7, 16.5
 """
 
 import logging
 from django.http import JsonResponse
 from django.utils.deprecation import MiddlewareMixin
+from django.core.cache import cache
+from django.utils import timezone
+from datetime import timedelta
 
 
 logger = logging.getLogger(__name__)
@@ -198,6 +202,106 @@ class KillSwitchMiddleware(MiddlewareMixin):
                 'code': 'KILL_SWITCH_ACTIVE',
             },
             status=403
+        )
+    
+    def _get_client_ip(self, request) -> str:
+        """Get client IP address from request."""
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip or ''
+
+
+
+class AuthRateLimitMiddleware(MiddlewareMixin):
+    """
+    Middleware to enforce rate limiting on authentication endpoints.
+    
+    Limits authentication attempts to 10 per hour per user to prevent
+    brute force attacks and abuse.
+    
+    Requirements: 16.5
+    """
+    
+    # Authentication endpoints to rate limit
+    AUTH_ENDPOINTS = [
+        '/api/v1/integrations/install/',
+        '/api/v1/integrations/oauth/callback/',
+        '/api/v1/integrations/meta/callback/',
+        '/api/v1/integrations/api-key/complete/',
+    ]
+    
+    # Rate limit configuration
+    MAX_ATTEMPTS = 10
+    WINDOW_HOURS = 1
+    
+    def process_request(self, request):
+        """Process incoming request to enforce rate limiting."""
+        # Check if this is an authentication endpoint
+        path = request.path
+        is_auth_endpoint = any(
+            path.startswith(endpoint) for endpoint in self.AUTH_ENDPOINTS
+        )
+        
+        if not is_auth_endpoint:
+            return None
+        
+        # Get user identifier (user ID or IP address)
+        user_key = self._get_user_key(request)
+        
+        # Check rate limit
+        if self._is_rate_limited(user_key):
+            return self._rate_limit_response(request, user_key)
+        
+        # Increment attempt counter
+        self._increment_attempts(user_key)
+        
+        return None
+    
+    def _get_user_key(self, request) -> str:
+        """Get unique identifier for rate limiting."""
+        if request.user.is_authenticated:
+            return f'auth_rate_limit:user:{request.user.id}'
+        else:
+            # Use IP address for unauthenticated requests
+            ip = self._get_client_ip(request)
+            return f'auth_rate_limit:ip:{ip}'
+    
+    def _is_rate_limited(self, user_key: str) -> bool:
+        """Check if user has exceeded rate limit."""
+        attempts = cache.get(user_key, 0)
+        return attempts >= self.MAX_ATTEMPTS
+    
+    def _increment_attempts(self, user_key: str) -> None:
+        """Increment attempt counter for user."""
+        attempts = cache.get(user_key, 0)
+        cache.set(
+            user_key,
+            attempts + 1,
+            timeout=self.WINDOW_HOURS * 3600  # Convert hours to seconds
+        )
+    
+    def _rate_limit_response(self, request, user_key: str) -> JsonResponse:
+        """Return rate limit exceeded response."""
+        # Get TTL for cache key to inform user when they can retry
+        ttl = cache.ttl(user_key)
+        retry_after = ttl if ttl else self.WINDOW_HOURS * 3600
+        
+        logger.warning(
+            f'Rate limit exceeded for {user_key} at {request.path}'
+        )
+        
+        return JsonResponse(
+            {
+                'error': 'Rate limit exceeded',
+                'message': f'Too many authentication attempts. '
+                          f'Please try again in {retry_after // 60} minutes.',
+                'code': 'RATE_LIMIT_EXCEEDED',
+                'retry_after': retry_after,
+            },
+            status=429
         )
     
     def _get_client_ip(self, request) -> str:

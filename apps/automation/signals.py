@@ -1,85 +1,84 @@
 """
-Signal handlers for cache invalidation.
+Signal handlers for automation app.
 
-Automatically invalidates caches when models are saved or deleted.
-
-Requirements: 17.4, 17.5
+Requirements: 31.6 - Invalidate cache on updates
 """
 
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
+import logging
 
-from .models import IntegrationTypeModel, Integration
-from .cache import MarketplaceCache
+logger = logging.getLogger('automation.events')
 
 
-@receiver(post_save, sender=IntegrationTypeModel)
-def invalidate_integration_type_cache_on_save(sender, instance, created, **kwargs):
+# Import will be done when models are created
+# from apps.automation.models import Integration, IntegrationTypeModel
+# from apps.automation.cache import invalidate_integration_cache, invalidate_integration_type_cache
+
+
+def register_cache_invalidation_signals():
     """
-    Invalidate integration type caches when IntegrationType is saved.
+    Register signal handlers for cache invalidation.
     
-    Requirements: 17.1, 17.3, 17.4
-    
-    Args:
-        sender: The model class (IntegrationTypeModel)
-        instance: The actual instance being saved
-        created: Boolean indicating if this is a new record
-        **kwargs: Additional keyword arguments
+    This function should be called in apps.py ready() method.
+    Requirements: 31.6
     """
-    # Invalidate active types listing cache
-    MarketplaceCache.invalidate_active_types()
-    
-    # Invalidate OAuth config cache for this specific integration type
-    MarketplaceCache.invalidate_oauth_config(str(instance.id))
+    try:
+        from apps.automation.models import Integration, IntegrationTypeModel
+        from apps.automation.cache import (
+            invalidate_integration_cache,
+            invalidate_integration_type_cache
+        )
+        
+        # Register Integration cache invalidation
+        post_save.connect(invalidate_integration_cache, sender=Integration)
+        post_delete.connect(invalidate_integration_cache, sender=Integration)
+        
+        # Register IntegrationTypeModel cache invalidation
+        post_save.connect(invalidate_integration_type_cache, sender=IntegrationTypeModel)
+        post_delete.connect(invalidate_integration_type_cache, sender=IntegrationTypeModel)
+        
+        logger.info("Cache invalidation signals registered successfully")
+    except ImportError as e:
+        logger.warning(f"Could not register cache invalidation signals: {e}")
 
 
-@receiver(post_delete, sender=IntegrationTypeModel)
-def invalidate_integration_type_cache_on_delete(sender, instance, **kwargs):
+# Example signal handlers for other automation events
+
+@receiver(post_save, sender='automation.WebhookEvent')
+def log_webhook_event(sender, instance, created, **kwargs):
     """
-    Invalidate integration type caches when IntegrationType is deleted.
+    Log webhook event creation.
     
-    Requirements: 17.1, 17.3, 17.4
-    
-    Args:
-        sender: The model class (IntegrationTypeModel)
-        instance: The actual instance being deleted
-        **kwargs: Additional keyword arguments
+    Requirements: 30.2 - Log all webhook events
     """
-    # Invalidate active types listing cache
-    MarketplaceCache.invalidate_active_types()
-    
-    # Invalidate OAuth config cache for this specific integration type
-    MarketplaceCache.invalidate_oauth_config(str(instance.id))
+    if created:
+        logger.info(
+            "Webhook event created",
+            extra={
+                'event_id': instance.pk,
+                'integration_type': instance.integration_type_id,
+                'status': instance.status,
+                'timestamp': instance.created_at.isoformat(),
+            }
+        )
 
 
-@receiver(post_save, sender=Integration)
-def invalidate_user_installed_cache_on_save(sender, instance, created, **kwargs):
+@receiver(post_save, sender='automation.Message')
+def log_message_status_change(sender, instance, created, **kwargs):
     """
-    Invalidate user installation cache when Integration is saved.
+    Log message status changes.
     
-    Requirements: 17.2, 17.4
-    
-    Args:
-        sender: The model class (Integration)
-        instance: The actual instance being saved
-        created: Boolean indicating if this is a new record
-        **kwargs: Additional keyword arguments
+    Requirements: 30.3 - Log all message sends
     """
-    # Invalidate user's installed integrations cache
-    MarketplaceCache.invalidate_user_installed(instance.user.id)
-
-
-@receiver(post_delete, sender=Integration)
-def invalidate_user_installed_cache_on_delete(sender, instance, **kwargs):
-    """
-    Invalidate user installation cache when Integration is deleted.
-    
-    Requirements: 17.2, 17.4
-    
-    Args:
-        sender: The model class (Integration)
-        instance: The actual instance being deleted
-        **kwargs: Additional keyword arguments
-    """
-    # Invalidate user's installed integrations cache
-    MarketplaceCache.invalidate_user_installed(instance.user.id)
+    if not created:
+        logger.info(
+            "Message status updated",
+            extra={
+                'message_id': instance.pk,
+                'integration_id': instance.conversation.integration_id if hasattr(instance, 'conversation') else None,
+                'status': instance.status,
+                'retry_count': instance.retry_count if hasattr(instance, 'retry_count') else 0,
+                'timestamp': instance.updated_at.isoformat(),
+            }
+        )

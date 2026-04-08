@@ -9,8 +9,14 @@ from rest_framework.permissions import IsAuthenticated
 
 from core.api.views import BaseAPIView
 from core.api.permissions import IsVerifiedUser, HasTwin
-# Temporarily commented out for Phase 1 checkpoint - Phase 2 will implement API layer
-# from .services import IntegrationService, WorkflowEngine
+
+# Import integration management views from new module
+from .views.integration_management import (
+    IntegrationListView,
+    IntegrationDetailView,
+    IntegrationDeleteView,
+)
+
 from .services import IntegrationService, WorkflowEngine  # Legacy imports
 from .dataclasses import (
     ConnectIntegrationRequest,
@@ -29,42 +35,8 @@ from .serializers import (
 )
 
 
-# Integration Views
-
-class IntegrationListView(BaseAPIView):
-    """
-    GET /api/v1/integrations
-    
-    Get all connected integrations for the user.
-    Requirements: 7.1
-    """
-    permission_classes = [IsAuthenticated, IsVerifiedUser]
-    
-    def get(self, request):
-        integration_service = IntegrationService()
-        integrations = integration_service.get_integrations(str(request.user.id))
-        
-        data = [
-            {
-                "id": i.id,
-                "user_id": i.user_id,
-                "type": i.type,
-                "scopes": i.scopes,
-                "steering_rules": i.steering_rules,
-                "permissions": i.permissions,
-                "token_expires_at": i.token_expires_at.isoformat() if i.token_expires_at else None,
-                "is_active": i.is_active,
-                "created_at": i.created_at.isoformat(),
-            }
-            for i in integrations
-        ]
-        
-        return self.success_response(
-            data={
-                "integrations": data,
-                "total": len(data),
-            }
-        )
+# Integration Views - now imported from integration_management module
+# IntegrationListView, IntegrationDetailView, IntegrationDeleteView
 
 
 class IntegrationConnectView(BaseAPIView):
@@ -119,71 +91,6 @@ class IntegrationConnectView(BaseAPIView):
                 code="CONNECTION_FAILED",
                 status_code=status.HTTP_400_BAD_REQUEST
             )
-
-
-class IntegrationDetailView(BaseAPIView):
-    """
-    GET /api/v1/integrations/{id}
-    DELETE /api/v1/integrations/{id}
-    
-    Get or delete a specific integration.
-    Requirements: 7.1
-    """
-    permission_classes = [IsAuthenticated, IsVerifiedUser]
-    
-    def get(self, request, integration_id):
-        integration_service = IntegrationService()
-        integration = integration_service.get_integration_by_id(integration_id)
-        
-        if not integration:
-            return self.error_response(
-                message="Integration not found",
-                code="NOT_FOUND",
-                status_code=status.HTTP_404_NOT_FOUND
-            )
-        
-        if str(integration.user_id) != str(request.user.id):
-            return self.error_response(
-                message="Integration not found",
-                code="NOT_FOUND",
-                status_code=status.HTTP_404_NOT_FOUND
-            )
-        
-        return self.success_response(
-            data={
-                "id": str(integration.id),
-                "type": integration.type,
-                "type_display": integration.get_type_display(),
-                "scopes": integration.scopes,
-                "steering_rules": integration.steering_rules,
-                "permissions": integration.permissions,
-                "token_expires_at": integration.token_expires_at.isoformat() if integration.token_expires_at else None,
-                "is_active": integration.is_active,
-                "is_token_expired": integration.is_token_expired,
-                "created_at": integration.created_at.isoformat(),
-            }
-        )
-    
-    def delete(self, request, integration_id):
-        integration_service = IntegrationService()
-        integration = integration_service.get_integration_by_id(integration_id)
-        
-        if not integration:
-            return self.error_response(
-                message="Integration not found",
-                code="NOT_FOUND",
-                status_code=status.HTTP_404_NOT_FOUND
-            )
-        
-        if str(integration.user_id) != str(request.user.id):
-            return self.error_response(
-                message="Integration not found",
-                code="NOT_FOUND",
-                status_code=status.HTTP_404_NOT_FOUND
-            )
-        
-        integration_service.disconnect(integration_id)
-        return self.no_content_response()
 
 
 class IntegrationPermissionsView(BaseAPIView):

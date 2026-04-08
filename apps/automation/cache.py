@@ -1,165 +1,379 @@
 """
-Cache utilities for app marketplace.
+Caching utilities for automation models.
 
-Provides cache key management and invalidation utilities
-for integration types, user installations, and OAuth configurations.
-
-Requirements: 17.5
+Requirements: 31.6 - Cache Integration and IntegrationTypeModel with 5-minute TTL
 """
 
-from typing import Optional, Set, List
+from typing import Optional, Any
 from django.core.cache import cache
+from django.db.models import Model
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Cache TTL: 5 minutes (Requirement 31.6)
+CACHE_TTL = 300
+
+
+class ModelCache:
+    """
+    Generic model caching utility with automatic invalidation.
+    
+    Requirements: 31.6
+    """
+    
+    @staticmethod
+    def get_cache_key(model_class: type[Model], pk: Any) -> str:
+        """
+        Generate cache key for a model instance.
+        
+        Args:
+            model_class: Model class
+            pk: Primary key value
+            
+        Returns:
+            Cache key string
+        """
+        model_name = model_class._meta.label_lower.replace('.', '_')
+        return f"model_cache:{model_name}:{pk}"
+    
+    @staticmethod
+    def get_list_cache_key(model_class: type[Model], filter_key: str = "all") -> str:
+        """
+        Generate cache key for a list of model instances.
+        
+        Args:
+            model_class: Model class
+            filter_key: Filter identifier (e.g., "active", "user_123")
+            
+        Returns:
+            Cache key string
+        """
+        model_name = model_class._meta.label_lower.replace('.', '_')
+        return f"model_cache:{model_name}:list:{filter_key}"
+    
+    @classmethod
+    def get(cls, model_class: type[Model], pk: Any) -> Optional[Model]:
+        """
+        Get model instance from cache.
+        
+        Args:
+            model_class: Model class
+            pk: Primary key value
+            
+        Returns:
+            Model instance or None if not cached
+        """
+        cache_key = cls.get_cache_key(model_class, pk)
+        instance = cache.get(cache_key)
+        
+        if instance:
+            logger.debug(f"Cache hit: {cache_key}")
+        else:
+            logger.debug(f"Cache miss: {cache_key}")
+        
+        return instance
+    
+    @classmethod
+    def set(cls, instance: Model, ttl: int = CACHE_TTL) -> None:
+        """
+        Store model instance in cache.
+        
+        Args:
+            instance: Model instance to cache
+            ttl: Time to live in seconds (default: 5 minutes)
+        """
+        cache_key = cls.get_cache_key(instance.__class__, instance.pk)
+        cache.set(cache_key, instance, ttl)
+        logger.debug(f"Cached: {cache_key} (TTL: {ttl}s)")
+    
+    @classmethod
+    def delete(cls, model_class: type[Model], pk: Any) -> None:
+        """
+        Remove model instance from cache.
+        
+        Args:
+            model_class: Model class
+            pk: Primary key value
+        """
+        cache_key = cls.get_cache_key(model_class, pk)
+        cache.delete(cache_key)
+        logger.debug(f"Cache invalidated: {cache_key}")
+    
+    @classmethod
+    def get_or_fetch(cls, model_class: type[Model], pk: Any, ttl: int = CACHE_TTL) -> Optional[Model]:
+        """
+        Get model instance from cache or fetch from database.
+        
+        Args:
+            model_class: Model class
+            pk: Primary key value
+            ttl: Time to live in seconds (default: 5 minutes)
+            
+        Returns:
+            Model instance or None if not found
+        """
+        # Try cache first
+        instance = cls.get(model_class, pk)
+        
+        if instance is None:
+            # Fetch from database
+            try:
+                instance = model_class.objects.get(pk=pk)
+                cls.set(instance, ttl)
+            except model_class.DoesNotExist:
+                logger.debug(f"Model not found: {model_class.__name__} pk={pk}")
+                return None
+        
+        return instance
+    
+    @classmethod
+    def invalidate_list(cls, model_class: type[Model], filter_key: str = "all") -> None:
+        """
+        Invalidate cached list of model instances.
+        
+        Args:
+            model_class: Model class
+            filter_key: Filter identifier
+        """
+        cache_key = cls.get_list_cache_key(model_class, filter_key)
+        cache.delete(cache_key)
+        logger.debug(f"List cache invalidated: {cache_key}")
+
+
+class IntegrationCache:
+    """
+    Specialized caching for Integration model.
+    
+    Requirements: 31.6 - Cache with 5-minute TTL, invalidate on updates
+    """
+    
+    @staticmethod
+    def get_by_id(integration_id: int) -> Optional[Any]:
+        """
+        Get Integration by ID from cache or database.
+        
+        Args:
+            integration_id: Integration primary key
+            
+        Returns:
+            Integration instance or None
+        """
+        from apps.automation.models import Integration
+        return ModelCache.get_or_fetch(Integration, integration_id)
+    
+    @staticmethod
+    def get_by_user(user_id: int) -> Optional[list]:
+        """
+        Get user's integrations from cache.
+        
+        Args:
+            user_id: User primary key
+            
+        Returns:
+            List of Integration instances or None if not cached
+        """
+        from apps.automation.models import Integration
+        cache_key = ModelCache.get_list_cache_key(Integration, f"user_{user_id}")
+        return cache.get(cache_key)
+    
+    @staticmethod
+    def set_user_integrations(user_id: int, integrations: list, ttl: int = CACHE_TTL) -> None:
+        """
+        Cache user's integrations.
+        
+        Args:
+            user_id: User primary key
+            integrations: List of Integration instances
+            ttl: Time to live in seconds
+        """
+        from apps.automation.models import Integration
+        cache_key = ModelCache.get_list_cache_key(Integration, f"user_{user_id}")
+        cache.set(cache_key, integrations, ttl)
+        logger.debug(f"Cached user integrations: user_id={user_id}")
+    
+    @staticmethod
+    def invalidate(integration_id: int, user_id: Optional[int] = None) -> None:
+        """
+        Invalidate Integration cache.
+        
+        Args:
+            integration_id: Integration primary key
+            user_id: Optional user ID to invalidate user's integration list
+        """
+        from apps.automation.models import Integration
+        
+        # Invalidate single instance cache
+        ModelCache.delete(Integration, integration_id)
+        
+        # Invalidate user's integration list if provided
+        if user_id:
+            ModelCache.invalidate_list(Integration, f"user_{user_id}")
+        
+        logger.info(f"Integration cache invalidated: id={integration_id}, user_id={user_id}")
+
+
+class IntegrationTypeCache:
+    """
+    Specialized caching for IntegrationTypeModel.
+    
+    Requirements: 31.6 - Cache with 5-minute TTL, invalidate on updates
+    """
+    
+    @staticmethod
+    def get_by_id(integration_type_id: int) -> Optional[Any]:
+        """
+        Get IntegrationTypeModel by ID from cache or database.
+        
+        Args:
+            integration_type_id: IntegrationTypeModel primary key
+            
+        Returns:
+            IntegrationTypeModel instance or None
+        """
+        from apps.automation.models import IntegrationTypeModel
+        return ModelCache.get_or_fetch(IntegrationTypeModel, integration_type_id)
+    
+    @staticmethod
+    def get_all_active() -> Optional[list]:
+        """
+        Get all active integration types from cache.
+        
+        Returns:
+            List of IntegrationTypeModel instances or None if not cached
+        """
+        from apps.automation.models import IntegrationTypeModel
+        cache_key = ModelCache.get_list_cache_key(IntegrationTypeModel, "active")
+        return cache.get(cache_key)
+    
+    @staticmethod
+    def set_all_active(integration_types: list, ttl: int = CACHE_TTL) -> None:
+        """
+        Cache all active integration types.
+        
+        Args:
+            integration_types: List of IntegrationTypeModel instances
+            ttl: Time to live in seconds
+        """
+        from apps.automation.models import IntegrationTypeModel
+        cache_key = ModelCache.get_list_cache_key(IntegrationTypeModel, "active")
+        cache.set(cache_key, integration_types, ttl)
+        logger.debug("Cached active integration types")
+    
+    @staticmethod
+    def invalidate(integration_type_id: int) -> None:
+        """
+        Invalidate IntegrationTypeModel cache.
+        
+        Args:
+            integration_type_id: IntegrationTypeModel primary key
+        """
+        from apps.automation.models import IntegrationTypeModel
+        
+        # Invalidate single instance cache
+        ModelCache.delete(IntegrationTypeModel, integration_type_id)
+        
+        # Invalidate active list cache
+        ModelCache.invalidate_list(IntegrationTypeModel, "active")
+        
+        logger.info(f"IntegrationTypeModel cache invalidated: id={integration_type_id}")
+    
+    @staticmethod
+    def invalidate_all() -> None:
+        """Invalidate all IntegrationTypeModel caches."""
+        from apps.automation.models import IntegrationTypeModel
+        ModelCache.invalidate_list(IntegrationTypeModel, "active")
+        logger.info("All IntegrationTypeModel caches invalidated")
+
+
+def invalidate_integration_cache(sender, instance, **kwargs):
+    """
+    Signal handler to invalidate Integration cache on save/delete.
+    
+    Usage:
+        from django.db.models.signals import post_save, post_delete
+        post_save.connect(invalidate_integration_cache, sender=Integration)
+        post_delete.connect(invalidate_integration_cache, sender=Integration)
+    """
+    IntegrationCache.invalidate(
+        integration_id=instance.pk,
+        user_id=instance.user_id if hasattr(instance, 'user_id') else None
+    )
+
+
+def invalidate_integration_type_cache(sender, instance, **kwargs):
+    """
+    Signal handler to invalidate IntegrationTypeModel cache on save/delete.
+    
+    Usage:
+        from django.db.models.signals import post_save, post_delete
+        post_save.connect(invalidate_integration_type_cache, sender=IntegrationTypeModel)
+        post_delete.connect(invalidate_integration_type_cache, sender=IntegrationTypeModel)
+    """
+    IntegrationTypeCache.invalidate(integration_type_id=instance.pk)
+
 
 
 class MarketplaceCache:
-    """Cache management for marketplace data."""
+    """
+    Specialized caching for marketplace operations.
     
-    # Cache key patterns
-    KEY_ACTIVE_TYPES = 'marketplace:active_types'
-    KEY_USER_INSTALLED = 'user:{user_id}:installed_types'
-    KEY_OAUTH_CONFIG = 'oauth_config:{integration_type_id}'
-    KEY_CATEGORIES = 'marketplace:categories_with_counts'
+    Requirements: 13.1-13.6, 17.1-17.5
+    """
     
-    # Cache TTLs (in seconds)
-    TTL_ACTIVE_TYPES = 300  # 5 minutes
-    TTL_USER_INSTALLED = 60  # 1 minute
-    TTL_OAUTH_CONFIG = 600  # 10 minutes
+    # Cache keys
+    KEY_CATEGORIES = "marketplace:categories"
+    KEY_ACTIVE_TYPES = "marketplace:active_types"
+    KEY_USER_INSTALLED_PREFIX = "marketplace:user_installed:"
+    
+    # Cache TTLs
     TTL_CATEGORIES = 300  # 5 minutes
+    TTL_ACTIVE_TYPES = 300  # 5 minutes
+    TTL_USER_INSTALLED = 300  # 5 minutes
     
     @classmethod
-    def get_active_types_key(cls) -> str:
-        """Get cache key for active integration types."""
-        return cls.KEY_ACTIVE_TYPES
-    
-    @classmethod
-    def get_user_installed_key(cls, user_id: int) -> str:
-        """Get cache key for user's installed integration types."""
-        return cls.KEY_USER_INSTALLED.format(user_id=user_id)
-    
-    @classmethod
-    def get_oauth_config_key(cls, integration_type_id: str) -> str:
-        """Get cache key for OAuth configuration."""
-        return cls.KEY_OAUTH_CONFIG.format(integration_type_id=integration_type_id)
-    
-    @classmethod
-    def invalidate_active_types(cls):
+    def get_user_installed(cls, user_id: int) -> Optional[set]:
         """
-        Invalidate cache for active integration types.
-        
-        Should be called when IntegrationType records are created/updated/deleted.
-        Requirements: 17.1
-        """
-        cache.delete(cls.get_active_types_key())
-        cache.delete(cls.KEY_CATEGORIES)
-    
-    @classmethod
-    def invalidate_user_installed(cls, user_id: int):
-        """
-        Invalidate cache for user's installed integrations.
-        
-        Should be called when Integration records are created/deleted.
-        Requirements: 17.2
+        Get user's installed integration type IDs from cache.
         
         Args:
-            user_id: ID of the user whose cache should be invalidated
-        """
-        cache.delete(cls.get_user_installed_key(user_id))
-    
-    @classmethod
-    def invalidate_oauth_config(cls, integration_type_id: str):
-        """
-        Invalidate cache for OAuth configuration.
-        
-        Should be called when IntegrationType OAuth config is updated.
-        Requirements: 17.3
-        
-        Args:
-            integration_type_id: UUID of the integration type
-        """
-        cache.delete(cls.get_oauth_config_key(integration_type_id))
-    
-    @classmethod
-    def cache_active_types(cls, integration_type_ids: List[str]):
-        """
-        Cache active integration type IDs.
-        
-        Requirements: 17.1
-        
-        Args:
-            integration_type_ids: List of integration type UUIDs
-        """
-        cache.set(
-            cls.get_active_types_key(),
-            integration_type_ids,
-            cls.TTL_ACTIVE_TYPES
-        )
-    
-    @classmethod
-    def get_active_types(cls) -> Optional[List[str]]:
-        """
-        Get cached active integration type IDs.
-        
-        Requirements: 17.1
-        
+            user_id: User primary key
+            
         Returns:
-            List of integration type UUIDs or None if not cached
+            Set of integration type IDs (as strings) or None if not cached
         """
-        return cache.get(cls.get_active_types_key())
+        cache_key = f"{cls.KEY_USER_INSTALLED_PREFIX}{user_id}"
+        return cache.get(cache_key)
     
     @classmethod
-    def cache_user_installed(cls, user_id: int, integration_type_ids: Set[str]):
+    def cache_user_installed(cls, user_id: int, integration_type_ids: set, ttl: int = TTL_USER_INSTALLED) -> None:
         """
         Cache user's installed integration type IDs.
         
-        Requirements: 17.2
+        Args:
+            user_id: User primary key
+            integration_type_ids: Set of integration type IDs (as strings)
+            ttl: Time to live in seconds
+        """
+        cache_key = f"{cls.KEY_USER_INSTALLED_PREFIX}{user_id}"
+        cache.set(cache_key, integration_type_ids, ttl)
+        logger.debug(f"Cached user installed integrations: user_id={user_id}")
+    
+    @classmethod
+    def invalidate_user_installed(cls, user_id: int) -> None:
+        """
+        Invalidate user's installed integrations cache.
         
         Args:
-            user_id: User ID
-            integration_type_ids: Set of integration type UUIDs
+            user_id: User primary key
         """
-        cache.set(
-            cls.get_user_installed_key(user_id),
-            integration_type_ids,
-            cls.TTL_USER_INSTALLED
-        )
+        cache_key = f"{cls.KEY_USER_INSTALLED_PREFIX}{user_id}"
+        cache.delete(cache_key)
+        logger.debug(f"User installed cache invalidated: user_id={user_id}")
     
     @classmethod
-    def get_user_installed(cls, user_id: int) -> Optional[Set[str]]:
-        """
-        Get cached user's installed integration type IDs.
-        
-        Requirements: 17.2
-        
-        Returns:
-            Set of integration type UUIDs or None if not cached
-        """
-        return cache.get(cls.get_user_installed_key(user_id))
-    
-    @classmethod
-    def cache_oauth_config(cls, integration_type_id: str, oauth_config: dict):
-        """
-        Cache OAuth configuration for an integration type.
-        
-        Requirements: 17.3
-        
-        Args:
-            integration_type_id: UUID of the integration type
-            oauth_config: OAuth configuration dictionary
-        """
-        cache.set(
-            cls.get_oauth_config_key(integration_type_id),
-            oauth_config,
-            cls.TTL_OAUTH_CONFIG
-        )
-    
-    @classmethod
-    def get_oauth_config(cls, integration_type_id: str) -> Optional[dict]:
-        """
-        Get cached OAuth configuration.
-        
-        Requirements: 17.3
-        
-        Returns:
-            OAuth configuration dictionary or None if not cached
-        """
-        return cache.get(cls.get_oauth_config_key(integration_type_id))
+    def invalidate_active_types(cls) -> None:
+        """Invalidate active integration types cache."""
+        cache.delete(cls.KEY_ACTIVE_TYPES)
+        cache.delete(cls.KEY_CATEGORIES)
+        logger.debug("Active integration types cache invalidated")

@@ -1,108 +1,130 @@
 """
-Rate limiting throttle classes for installation and API endpoints.
+Custom throttling classes for automation system.
 
-Provides DRF throttle classes for controlling installation rate
-and general API usage per user.
-
-Requirements: 18.7
+Provides rate limiting for authentication and installation endpoints.
+Requirements: 33.5, 14.1-14.7
 """
 
-from rest_framework.throttling import UserRateThrottle
-from django.core.cache import cache
-
-from apps.automation.utils.error_logging import InstallationErrorLogger
+from rest_framework.throttling import UserRateThrottle, AnonRateThrottle
+from .security import SecurityEventLogger, get_client_ip
 
 
-class InstallationRateThrottle(UserRateThrottle):
+class AuthenticationThrottle(AnonRateThrottle):
     """
-    Rate throttle for installation endpoints.
+    Rate limit for authentication endpoints to prevent brute force attacks.
     
-    Limits users to 10 installation attempts per hour to prevent
-    abuse and protect OAuth provider rate limits.
-    
-    Requirements: 18.7
+    Requirements: 33.5
     """
+    scope = 'auth'
+    rate = '20/minute'  # 20 attempts per minute
     
-    # 10 installations per hour
-    rate = '10/hour'
+    def throttle_failure(self):
+        """Log rate limit violation when throttle fails"""
+        request = self.request
+        
+        SecurityEventLogger.log_rate_limit_violation(
+            user_id=str(request.user.id) if hasattr(request, 'user') and request.user.is_authenticated else None,
+            integration_id=None,
+            limit_type='authentication',
+            attempted_rate=self.num_requests,
+            limit=self.num_requests,
+            ip_address=get_client_ip(request)
+        )
+        
+        return super().throttle_failure()
+
+
+class InstallationThrottle(UserRateThrottle):
+    """
+    Rate limit for integration installation endpoints.
+    
+    Requirements: 14.1-14.7
+    """
     scope = 'installation'
+    rate = '10/hour'  # 10 installations per hour per user
     
     def throttle_failure(self):
-        """
-        Called when throttle limit is exceeded.
+        """Log rate limit violation when throttle fails"""
+        request = self.request
         
-        Logs the rate limit violation for monitoring.
-        """
-        # Get user from request
-        if hasattr(self, 'request') and self.request.user.is_authenticated:
-            user_id = str(self.request.user.id)
-            
-            # Get current count from cache
-            cache_key = self.get_cache_key(self.request, self.request.user)
-            history = cache.get(cache_key, [])
-            current_count = len(history)
-            
-            # Log rate limit violation
-            InstallationErrorLogger.log_rate_limit_violation(
-                user_id=user_id,
-                endpoint=self.request.path,
-                limit_type='installation',
-                current_count=current_count,
-                max_allowed=10
-            )
+        SecurityEventLogger.log_rate_limit_violation(
+            user_id=str(request.user.id) if hasattr(request, 'user') and request.user.is_authenticated else None,
+            integration_id=None,
+            limit_type='installation',
+            attempted_rate=self.num_requests,
+            limit=self.num_requests,
+            ip_address=get_client_ip(request)
+        )
         
         return super().throttle_failure()
 
 
-class APIRateThrottle(UserRateThrottle):
+class MetaInstallationThrottle(AnonRateThrottle):
     """
-    Rate throttle for general API endpoints.
+    Global rate limit for Meta integration installations.
     
-    Limits users to 1000 API requests per hour to prevent abuse
-    and ensure fair resource allocation.
+    Limits Meta installations to 5 per minute globally to comply with Meta's onboarding quotas.
+    Requirements: 14.1-14.7
+    """
+    scope = 'meta_installation'
+    rate = '5/minute'  # 5 Meta installations per minute globally
+    
+    def get_cache_key(self, request, view):
+        """
+        Use a global cache key for Meta installations.
+        
+        This ensures the rate limit applies across all users.
+        """
+        return 'throttle_meta_installation_global'
+    
+    def allow_request(self, request, view):
+        """
+        Check if request should be allowed.
+        
+        Exempt admin users from rate limit.
+        """
+        # Exempt admin users
+        if hasattr(request, 'user') and request.user.is_authenticated and request.user.is_staff:
+            return True
+        
+        return super().allow_request(request, view)
+    
+    def throttle_failure(self):
+        """Log rate limit violation when throttle fails"""
+        request = self.request
+        
+        SecurityEventLogger.log_rate_limit_violation(
+            user_id=str(request.user.id) if hasattr(request, 'user') and request.user.is_authenticated else None,
+            integration_id=None,
+            limit_type='meta_installation_global',
+            attempted_rate=self.num_requests,
+            limit=5,  # 5 per minute
+            ip_address=get_client_ip(request)
+        )
+        
+        return super().throttle_failure()
+
+
+class APIThrottle(UserRateThrottle):
+    """
+    General API rate limit.
     
     Requirements: 18.7
     """
-    
-    # 1000 requests per hour
-    rate = '1000/hour'
     scope = 'api'
-    
-    def throttle_failure(self):
-        """
-        Called when throttle limit is exceeded.
-        
-        Logs the rate limit violation for monitoring.
-        """
-        # Get user from request
-        if hasattr(self, 'request') and self.request.user.is_authenticated:
-            user_id = str(self.request.user.id)
-            
-            # Get current count from cache
-            cache_key = self.get_cache_key(self.request, self.request.user)
-            history = cache.get(cache_key, [])
-            current_count = len(history)
-            
-            # Log rate limit violation
-            InstallationErrorLogger.log_rate_limit_violation(
-                user_id=user_id,
-                endpoint=self.request.path,
-                limit_type='api',
-                current_count=current_count,
-                max_allowed=1000
-            )
-        
-        return super().throttle_failure()
+    rate = '1000/hour'
 
 
-class BurstAPIRateThrottle(UserRateThrottle):
+class APIBurstThrottle(UserRateThrottle):
     """
-    Burst rate throttle for API endpoints.
+    Burst protection for API endpoints.
     
-    Limits users to 100 requests per minute to prevent burst abuse
-    while allowing normal usage patterns.
+    Requirements: 18.7
     """
-    
-    # 100 requests per minute
-    rate = '100/min'
     scope = 'api_burst'
+    rate = '100/minute'
+
+
+# Aliases for backward compatibility
+InstallationRateThrottle = InstallationThrottle
+APIRateThrottle = APIThrottle
