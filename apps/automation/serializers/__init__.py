@@ -22,6 +22,15 @@ from .installation import (
     InstallationStartSerializer,
     InstallationResponseSerializer,
 )
+from .conversation import (
+    ConversationSerializer,
+    ConversationListSerializer,
+)
+from .message import (
+    MessageSerializer,
+    MessageListSerializer,
+    SendMessageSerializer,
+)
 
 __all__ = [
     'IntegrationTypeSerializer',
@@ -36,4 +45,9 @@ __all__ = [
     'InstallationProgressSerializer',
     'InstallationStartSerializer',
     'InstallationResponseSerializer',
+    'ConversationSerializer',
+    'ConversationListSerializer',
+    'MessageSerializer',
+    'MessageListSerializer',
+    'SendMessageSerializer',
 ]

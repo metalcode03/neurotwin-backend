@@ -34,6 +34,16 @@ class IntegrationSerializer(serializers.ModelSerializer):
     is_token_expired = serializers.BooleanField(read_only=True)
     has_refresh_token = serializers.BooleanField(read_only=True)
     
+    # Health monitoring fields
+    health_status = serializers.CharField(read_only=True)
+    last_successful_sync_at = serializers.DateTimeField(read_only=True)
+    consecutive_failures = serializers.IntegerField(read_only=True)
+    
+    # Meta-specific fields (for WhatsApp integrations)
+    waba_id = serializers.CharField(read_only=True, allow_null=True)
+    phone_number_id = serializers.CharField(read_only=True, allow_null=True)
+    business_id = serializers.CharField(read_only=True, allow_null=True)
+    
     class Meta:
         model = Integration
         fields = [
@@ -46,9 +56,17 @@ class IntegrationSerializer(serializers.ModelSerializer):
             'steering_rules',
             'permissions',
             'token_expires_at',
+            'status',
             'is_active',
             'is_token_expired',
             'has_refresh_token',
+            'health_status',
+            'last_successful_sync_at',
+            'consecutive_failures',
+            'waba_id',
+            'phone_number_id',
+            'business_id',
+            'user_config',
             'created_at',
             'updated_at',
         ]

@@ -22,6 +22,7 @@ class IntegrationTypeSerializer(serializers.ModelSerializer):
     
     # Read-only computed fields
     automation_template_count = serializers.SerializerMethodField()
+    required_fields = serializers.SerializerMethodField()
     
     class Meta:
         model = IntegrationTypeModel
@@ -33,18 +34,29 @@ class IntegrationTypeSerializer(serializers.ModelSerializer):
             'description',
             'brief_description',
             'category',
-            'oauth_config',
+            'auth_type',
+            'auth_config',
+            'oauth_config',  # Backward compatibility
             'default_permissions',
             'is_active',
             'created_at',
             'updated_at',
             'automation_template_count',
+            'required_fields',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
     
     def get_automation_template_count(self, obj) -> int:
         """Get count of active automation templates for this integration type."""
         return obj.automation_templates.filter(is_active=True).count()
+    
+    def get_required_fields(self, obj) -> list:
+        """
+        Get list of required auth_config fields based on auth_type.
+        
+        Requirements: 12.7
+        """
+        return obj.get_required_auth_fields()
     
     def validate_type(self, value: str) -> str:
         """
@@ -115,19 +127,19 @@ class IntegrationTypeSerializer(serializers.ModelSerializer):
         
         return value
     
-    def validate_oauth_config(self, value: dict) -> dict:
+    def validate_auth_config(self, value: dict) -> dict:
         """
-        Validate OAuth configuration.
+        Validate authentication configuration based on auth_type.
         
-        Requirements: 2.3
-        - authorization_url must be HTTPS
-        - token_url must be HTTPS
+        Requirements: 2.3, 4.7, 11.7
+        - OAuth: authorization_url and token_url must be HTTPS
+        - Meta: business_verification_url must be HTTPS
         - Validate URL format
         """
         if not value:
             return value
         
-        # Validate authorization_url
+        # Validate HTTPS URLs for OAuth
         if 'authorization_url' in value:
             auth_url = value['authorization_url']
             if not auth_url.startswith('https://'):
@@ -135,13 +147,11 @@ class IntegrationTypeSerializer(serializers.ModelSerializer):
                     "authorization_url must use HTTPS protocol for security"
                 )
             
-            # Basic URL format validation
             if not self._is_valid_url(auth_url):
                 raise serializers.ValidationError(
                     f"Invalid authorization_url format: {auth_url}"
                 )
         
-        # Validate token_url
         if 'token_url' in value:
             token_url = value['token_url']
             if not token_url.startswith('https://'):
@@ -149,11 +159,46 @@ class IntegrationTypeSerializer(serializers.ModelSerializer):
                     "token_url must use HTTPS protocol for security"
                 )
             
-            # Basic URL format validation
             if not self._is_valid_url(token_url):
                 raise serializers.ValidationError(
                     f"Invalid token_url format: {token_url}"
                 )
+        
+        # Validate HTTPS URLs for Meta
+        if 'business_verification_url' in value:
+            meta_url = value['business_verification_url']
+            if not meta_url.startswith('https://'):
+                raise serializers.ValidationError(
+                    "business_verification_url must use HTTPS protocol for security"
+                )
+            
+            if not self._is_valid_url(meta_url):
+                raise serializers.ValidationError(
+                    f"Invalid business_verification_url format: {meta_url}"
+                )
+        
+        # Validate API endpoint URL
+        if 'api_endpoint' in value:
+            api_url = value['api_endpoint']
+            if not api_url.startswith('https://'):
+                raise serializers.ValidationError(
+                    "api_endpoint must use HTTPS protocol for security"
+                )
+            
+            if not self._is_valid_url(api_url):
+                raise serializers.ValidationError(
+                    f"Invalid api_endpoint format: {api_url}"
+                )
+        
+        return value
+    
+    def validate_oauth_config(self, value: dict) -> dict:
+        """
+        Backward compatibility: validate oauth_config (alias for auth_config).
+        
+        Requirements: 2.3, 15.5
+        """
+        return self.validate_auth_config(value)
         
         return value
     
@@ -178,20 +223,31 @@ class IntegrationTypeSerializer(serializers.ModelSerializer):
         """
         Object-level validation.
         
-        Ensures all required OAuth fields are present if oauth_config is provided.
+        Ensures all required auth_config fields are present based on auth_type.
+        Requirements: 1.4, 2.6
         """
-        oauth_config = attrs.get('oauth_config', {})
+        auth_type = attrs.get('auth_type', self.instance.auth_type if self.instance else 'oauth')
+        auth_config = attrs.get('auth_config') or attrs.get('oauth_config', {})
         
-        if oauth_config:
-            required_oauth_fields = ['client_id', 'authorization_url', 'token_url', 'scopes']
+        if auth_config:
+            # Get required fields for this auth_type
+            if auth_type == 'oauth':
+                required_fields = ['client_id', 'authorization_url', 'token_url', 'scopes']
+            elif auth_type == 'meta':
+                required_fields = ['app_id', 'config_id', 'business_verification_url']
+            elif auth_type == 'api_key':
+                required_fields = ['api_endpoint', 'authentication_header_name']
+            else:
+                required_fields = []
+            
             missing_fields = [
-                field for field in required_oauth_fields 
-                if field not in oauth_config
+                field for field in required_fields 
+                if field not in auth_config
             ]
             
             if missing_fields:
                 raise serializers.ValidationError({
-                    'oauth_config': f"Missing required OAuth fields: {', '.join(missing_fields)}"
+                    'auth_config': f"Missing required fields for {auth_type}: {', '.join(missing_fields)}"
                 })
         
         return attrs
@@ -200,14 +256,27 @@ class IntegrationTypeSerializer(serializers.ModelSerializer):
         """
         Customize output representation.
         
-        Excludes encrypted client_secret from response.
+        Excludes encrypted secrets from response.
+        Includes both auth_config and oauth_config for backward compatibility.
+        
+        Requirements: 12.7, 15.5
         """
         data = super().to_representation(instance)
         
-        # Remove encrypted client_secret from oauth_config in response
+        # Remove encrypted secrets from auth_config in response
+        if 'auth_config' in data and isinstance(data['auth_config'], dict):
+            auth_config = data['auth_config'].copy()
+            auth_config.pop('client_secret_encrypted', None)
+            auth_config.pop('app_secret_encrypted', None)
+            auth_config.pop('api_key_encrypted', None)
+            data['auth_config'] = auth_config
+        
+        # Backward compatibility: also provide oauth_config
         if 'oauth_config' in data and isinstance(data['oauth_config'], dict):
             oauth_config = data['oauth_config'].copy()
             oauth_config.pop('client_secret_encrypted', None)
+            oauth_config.pop('app_secret_encrypted', None)
+            oauth_config.pop('api_key_encrypted', None)
             data['oauth_config'] = oauth_config
         
         return data
