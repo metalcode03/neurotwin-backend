@@ -2,10 +2,12 @@
 Installation service for integration installation workflows.
 
 Manages the two-phase installation process:
-- Phase 1: Create session and prepare OAuth
-- Phase 2: Complete OAuth flow and create Integration
+- Phase 1: Create session and prepare authentication
+- Phase 2: Complete authentication flow and create Integration
 
-Requirements: 4.1-4.11, 5.4-5.6, 11.1-11.7, 18.4-18.7
+Supports multiple authentication strategies: OAuth, Meta, API Key.
+
+Requirements: 4.1-4.11, 5.4-5.6, 8.1-8.8, 11.1-11.7, 18.4-18.7
 """
 
 import secrets
@@ -26,12 +28,20 @@ from apps.automation.models import (
     Integration,
     IntegrationTypeModel,
 )
+from apps.automation.exceptions import MetaInstallationRateLimitExceeded
 from apps.automation.cache import MarketplaceCache
+from apps.automation.services.auth_strategy_factory import AuthStrategyFactory
 from apps.automation.utils.encryption import TokenEncryption
 from apps.automation.utils.oauth_client import OAuthClient, OAuthTokenExchangeError
 from apps.automation.utils.oauth_state import OAuthStateManager
 from apps.automation.utils.recovery import InstallationRecovery
 from apps.automation.utils.error_logging import InstallationErrorLogger
+from apps.automation.utils.auth_config_cache import AuthConfigCache
+from apps.automation.utils.meta_installation_rate_limiter import MetaInstallationRateLimiter
+from apps.automation.selectors import (
+    IntegrationTypeSelector,
+    InstallationSessionSelector,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -51,11 +61,13 @@ class InstallationService:
     """
     Service for managing integration installation workflows.
     
-    Handles two-phase installation:
-    1. Downloading phase: Create session, generate OAuth state
-    2. OAuth setup phase: Exchange code for tokens, create Integration
+    Handles two-phase installation for all authentication types:
+    1. Downloading phase: Create session, generate state
+    2. Authentication phase: Complete auth flow, create Integration
     
-    Requirements: 4.1-4.11, 5.4-5.6, 11.1-11.7, 18.4-18.7
+    Supports OAuth, Meta, and API Key authentication strategies.
+    
+    Requirements: 4.1-4.11, 5.4-5.6, 8.1-8.8, 11.1-11.7, 18.4-18.7
     """
     
     # Rate limiting: 10 installations per hour per user
@@ -106,51 +118,60 @@ class InstallationService:
         """
         Get OAuth configuration with caching.
         
+        Uses AuthConfigCache for 5-minute TTL caching to reduce database queries.
+        
         Args:
             integration_type: IntegrationType instance
             
         Returns:
             dict: OAuth configuration
             
-        Requirements: 17.3
+        Requirements: 17.3, 22.5
         """
-        # Try to get from cache
-        cached_config = MarketplaceCache.get_oauth_config(str(integration_type.id))
+        # Try to get from AuthConfigCache first
+        cached_config = AuthConfigCache.get_auth_config(str(integration_type.id))
         
         if cached_config is not None:
             return cached_config
         
         # Get from database
-        oauth_config = integration_type.oauth_config
+        auth_config = integration_type.auth_config
         
-        # Cache the result
-        MarketplaceCache.cache_oauth_config(str(integration_type.id), oauth_config)
+        # Cache the result with 5-minute TTL
+        AuthConfigCache.set_auth_config(str(integration_type.id), auth_config)
         
-        return oauth_config
+        return auth_config
     
     @staticmethod
     def start_installation(
         user,
         integration_type_id: str
-    ) -> InstallationSession:
+    ) -> Dict[str, Any]:
         """
-        Start Phase 1 of installation: Create session.
+        Start Phase 1 of installation: Create session and get authorization URL.
         
-        Creates an InstallationSession with status="downloading" and
-        generates a cryptographically random OAuth state for CSRF protection.
+        Creates an InstallationSession and uses AuthStrategyFactory to get
+        the appropriate authorization URL (or None for API key flow).
         
         Args:
             user: User instance
             integration_type_id: UUID of IntegrationType to install
             
         Returns:
-            InstallationSession: Created session
+            dict: Installation start information with keys:
+                - session_id: UUID of created session
+                - authorization_url: URL for redirect (None for API key)
+                - requires_redirect: Whether redirect is needed
+                - requires_api_key: Whether API key input is needed
+                - auth_type: Authentication type identifier
             
         Raises:
             InstallationRateLimitExceeded: If user exceeded rate limit
+            MetaInstallationRateLimitExceeded: If Meta installation rate limit exceeded
             IntegrationTypeModel.DoesNotExist: If integration type not found
+            ValidationError: If auth configuration is invalid
             
-        Requirements: 4.1-4.2, 11.1, 18.7
+        Requirements: 4.1-4.2, 8.1, 8.2, 8.3, 11.1, 14.1-14.7, 18.7
         """
         # Check rate limit
         if not InstallationService._check_rate_limit(user):
@@ -159,70 +180,148 @@ class InstallationService:
                 'Maximum 10 installations per hour.'
             )
         
-        # Get integration type
-        integration_type = IntegrationTypeModel.objects.get(
-            id=integration_type_id,
-            is_active=True
-        )
+        # Get integration type using optimized selector
+        integration_type = IntegrationTypeSelector.get_type_by_id(integration_type_id)
         
-        # Create session with generated OAuth state
+        if not integration_type:
+            raise IntegrationTypeModel.DoesNotExist(
+                f'Integration type {integration_type_id} not found or inactive'
+            )
+        
+        # Check Meta installation rate limit (Requirements 14.1-14.7)
+        if integration_type.auth_type == 'meta':
+            meta_rate_limiter = MetaInstallationRateLimiter()
+            is_admin = user.is_staff or user.is_superuser
+            
+            allowed, wait_seconds = meta_rate_limiter.check_installation_limit(
+                user_id=str(user.id),
+                is_admin=is_admin
+            )
+            
+            if not allowed:
+                logger.warning(
+                    f'Meta installation rate limit exceeded for user {user.id}. '
+                    f'Wait {wait_seconds} seconds.'
+                )
+                raise MetaInstallationRateLimitExceeded(
+                    message=f'High demand for WhatsApp connections. '
+                            f'Please try again in {wait_seconds} seconds.',
+                    retry_after=wait_seconds
+                )
+        
+        # Create session with generated state
         session = OAuthStateManager.create_session_with_state(
             user=user,
             integration_type=integration_type
         )
         
-        logger.info(
-            f'Started installation session {session.id} for user {user.id}, '
-            f'integration type {integration_type.name}'
+        # Create strategy using factory (Requirement 8.1)
+        strategy = AuthStrategyFactory.create_strategy(integration_type)
+        
+        # Get redirect URI from settings
+        redirect_uri = InstallationService._get_callback_url(integration_type)
+        
+        # Get authorization URL (None for API key) (Requirement 8.2, 8.3)
+        authorization_url = strategy.get_authorization_url(
+            state=session.oauth_state,
+            redirect_uri=redirect_uri
         )
         
-        return session
+        # Update session status based on auth type
+        if authorization_url:
+            session.status = InstallationStatus.OAUTH_SETUP
+            session.progress = 50
+        else:
+            # API key flow - no redirect needed
+            session.progress = 30
+        session.save(update_fields=['status', 'progress', 'updated_at'])
+        
+        logger.info(
+            f'Started installation session {session.id} for user {user.id}, '
+            f'integration type {integration_type.name}, auth_type={integration_type.auth_type}'
+        )
+        
+        return {
+            'session_id': str(session.id),
+            'authorization_url': authorization_url,
+            'requires_redirect': authorization_url is not None,
+            'requires_api_key': authorization_url is None,
+            'auth_type': integration_type.auth_type
+        }
+    
+    @staticmethod
+    def _get_callback_url(integration_type: IntegrationTypeModel) -> str:
+        """
+        Get callback URL based on auth type.
+        
+        Args:
+            integration_type: IntegrationTypeModel instance
+            
+        Returns:
+            Callback URL string
+        """
+        # Use Meta-specific callback for Meta auth
+        if integration_type.auth_type == 'meta':
+            return getattr(
+                settings,
+                'META_CALLBACK_URI',
+                f'{settings.FRONTEND_URL}/oauth/callback/meta'
+            )
+        
+        # Default OAuth callback
+        return getattr(
+            settings,
+            'OAUTH_REDIRECT_URI',
+            f'{settings.FRONTEND_URL}/oauth/callback'
+        )
 
     @staticmethod
-    def get_oauth_authorization_url(session_id: str) -> str:
+    def get_authorization_url(session_id: str) -> str:
         """
-        Get OAuth authorization URL for Phase 2.
+        Get authorization URL for Phase 2 (renamed from get_oauth_authorization_url).
         
-        Builds the OAuth authorization URL with client_id, scopes, state,
-        and redirect_uri. Updates session status to "oauth_setup".
+        Builds the authorization URL using the appropriate strategy.
+        Updates session status to "oauth_setup".
         
         Args:
             session_id: UUID of InstallationSession
             
         Returns:
-            str: OAuth authorization URL
+            str: Authorization URL
             
         Raises:
             InstallationSession.DoesNotExist: If session not found
-            ValueError: If OAuth config is invalid or URLs are not HTTPS
+            ValueError: If auth config is invalid or URLs are not HTTPS
             
-        Requirements: 4.4, 2.3, 11.3
+        Requirements: 4.4, 2.3, 8.2, 11.3
         """
-        # Get session
-        session = InstallationSession.objects.select_related(
-            'integration_type'
-        ).get(id=session_id)
+        # Get session using optimized selector
+        session = InstallationSessionSelector.get_session_by_id(session_id)
+        
+        if not session:
+            raise InstallationSession.DoesNotExist(
+                f'Installation session {session_id} not found'
+            )
         
         integration_type = session.integration_type
         
-        # Get redirect URI from settings
-        redirect_uri = getattr(
-            settings,
-            'OAUTH_REDIRECT_URI',
-            f'{settings.FRONTEND_URL}/oauth/callback'
-        )
+        # Create strategy using factory
+        strategy = AuthStrategyFactory.create_strategy(integration_type)
         
-        # Build OAuth client using utility
-        oauth_client = OAuthClient.from_integration_type(
-            integration_type=integration_type,
+        # Get redirect URI
+        redirect_uri = InstallationService._get_callback_url(integration_type)
+        
+        # Get authorization URL
+        authorization_url = strategy.get_authorization_url(
+            state=session.oauth_state,
             redirect_uri=redirect_uri
         )
         
-        # Build authorization URL with state
-        oauth_url = oauth_client.build_authorization_url(
-            state=session.oauth_state,
-            session_id=str(session.id)  # Include session_id in URL for callback
-        )
+        if not authorization_url:
+            raise ValueError(
+                f"No authorization URL for auth_type={integration_type.auth_type}. "
+                "Use API key completion endpoint instead."
+            )
         
         # Update session status to oauth_setup
         session.status = InstallationStatus.OAUTH_SETUP
@@ -230,29 +329,52 @@ class InstallationService:
         session.save(update_fields=['status', 'progress', 'updated_at'])
         
         logger.info(
-            f'Generated OAuth URL for session {session.id}, '
-            f'integration type {integration_type.name}'
+            f'Generated authorization URL for session {session.id}, '
+            f'integration type {integration_type.name}, auth_type={integration_type.auth_type}'
         )
         
-        return oauth_url
-
+        return authorization_url
+    
     @staticmethod
-    async def complete_oauth_flow(
-        session_id: str,
-        authorization_code: str,
-        state: str
-    ) -> Integration:
+    def get_oauth_authorization_url(session_id: str) -> str:
         """
-        Complete OAuth flow and create Integration (async).
+        Backward compatibility wrapper for get_authorization_url.
         
-        Validates OAuth state, exchanges authorization code for tokens,
-        encrypts and stores tokens, creates Integration record, and
-        triggers automation template instantiation.
+        DEPRECATED: Use get_authorization_url instead.
         
         Args:
             session_id: UUID of InstallationSession
-            authorization_code: OAuth authorization code from callback
-            state: OAuth state parameter for validation
+            
+        Returns:
+            str: Authorization URL
+        """
+        logger.warning(
+            'get_oauth_authorization_url is deprecated. Use get_authorization_url instead.'
+        )
+        return InstallationService.get_authorization_url(session_id)
+
+    @staticmethod
+    async def complete_authentication_flow(
+        session_id: str,
+        authorization_code: str,
+        state: str,
+        **kwargs
+    ) -> Integration:
+        """
+        Complete authentication flow and create Integration (async).
+        
+        Renamed from complete_oauth_flow. Uses AuthStrategyFactory to handle
+        all authentication types (OAuth, Meta, API Key).
+        
+        Validates state, completes authentication using strategy,
+        encrypts and stores tokens/credentials, creates Integration record,
+        and stores auth-type-specific data (e.g., Meta fields).
+        
+        Args:
+            session_id: UUID of InstallationSession
+            authorization_code: Authorization code from callback (or API key for API key auth)
+            state: State parameter for validation
+            **kwargs: Additional auth-type-specific parameters
             
         Returns:
             Integration: Created integration instance
@@ -260,21 +382,24 @@ class InstallationService:
         Raises:
             OAuthStateValidationError: If state validation fails
             InstallationSession.DoesNotExist: If session not found
-            OAuthTokenExchangeError: If token exchange fails
+            ValidationError: If authentication fails
             
-        Requirements: 4.5-4.9, 18.4
+        Requirements: 4.5-4.9, 8.4, 8.5, 8.6, 8.7, 18.4
         """
-        # Get session with related data
-        session = await InstallationSession.objects.select_related(
-            'integration_type', 'user'
-        ).aget(id=session_id)
+        # Get session with related data using optimized selector
+        session = InstallationSessionSelector.get_session_by_id(session_id)
         
-        # Validate OAuth state using OAuthStateManager (CSRF protection - Requirement 18.4)
+        if not session:
+            raise InstallationSession.DoesNotExist(
+                f'Installation session {session_id} not found'
+            )
+        
+        # Validate state using OAuthStateManager (CSRF protection - Requirement 18.4)
         is_valid, error_message = OAuthStateManager.validate_state(session, state)
         
         if not is_valid:
             logger.error(
-                f'OAuth state validation failed for session {session.id}: {error_message}'
+                f'State validation failed for session {session.id}: {error_message}'
             )
             
             session.status = InstallationStatus.FAILED
@@ -285,48 +410,46 @@ class InstallationService:
         
         integration_type = session.integration_type
         
+        # Create strategy using factory (Requirement 8.4)
+        strategy = AuthStrategyFactory.create_strategy(integration_type)
+        
         # Get redirect URI
-        redirect_uri = getattr(
-            settings,
-            'OAUTH_REDIRECT_URI',
-            f'{settings.FRONTEND_URL}/oauth/callback'
-        )
+        redirect_uri = InstallationService._get_callback_url(integration_type)
         
-        # Build OAuth client using utility
-        oauth_client = OAuthClient.from_integration_type(
-            integration_type=integration_type,
-            redirect_uri=redirect_uri
-        )
-        
-        # Exchange authorization code for tokens using OAuthClient
+        # Complete authentication using strategy (Requirement 8.5)
         try:
-            token_data = await oauth_client.exchange_code_for_tokens(
-                authorization_code=authorization_code
+            auth_data = await strategy.complete_authentication(
+                authorization_code=authorization_code,
+                state=state,
+                redirect_uri=redirect_uri,
+                **kwargs
             )
                 
-        except OAuthTokenExchangeError as e:
+        except Exception as e:
             logger.error(
-                f'OAuth token exchange failed for session {session.id}: {str(e)}'
+                f'Authentication failed for session {session.id}: {str(e)}'
             )
             
             session.status = InstallationStatus.FAILED
-            session.error_message = f'OAuth token exchange failed: {str(e)}'
+            session.error_message = f'Authentication failed: {str(e)}'
             await session.asave(update_fields=['status', 'error_message', 'updated_at'])
             
             raise
         
-        # Extract tokens
-        access_token = token_data.get('access_token')
-        refresh_token = token_data.get('refresh_token')
-        expires_in = token_data.get('expires_in')
+        # Extract common fields
+        access_token_encrypted = auth_data.get('access_token_encrypted')
+        refresh_token_encrypted = auth_data.get('refresh_token_encrypted')
+        expires_at = auth_data.get('expires_at')
+        scopes = auth_data.get('scopes', [])
         
-        if not access_token:
-            raise ValueError('OAuth response missing access_token')
+        # Extract Meta-specific fields (Requirement 8.7)
+        meta_business_id = auth_data.get('meta_business_id')
+        meta_waba_id = auth_data.get('meta_waba_id')
+        meta_phone_number_id = auth_data.get('meta_phone_number_id')
+        meta_config = auth_data.get('meta_config', {})
         
-        # Calculate token expiration
-        token_expires_at = None
-        if expires_in:
-            token_expires_at = timezone.now() + timedelta(seconds=expires_in)
+        if not access_token_encrypted:
+            raise ValueError('Authentication response missing access_token_encrypted')
         
         # Create Integration record with encrypted tokens (atomic transaction)
         async with transaction.atomic():
@@ -334,16 +457,23 @@ class InstallationService:
             integration = Integration(
                 user=session.user,
                 integration_type=integration_type,
-                scopes=integration_type.oauth_scopes,
+                oauth_token_encrypted=access_token_encrypted,
+                refresh_token_encrypted=refresh_token_encrypted,
+                scopes=scopes,
                 permissions=integration_type.default_permissions.copy(),
-                token_expires_at=token_expires_at,
+                token_expires_at=expires_at,
                 is_active=True
             )
             
-            # Encrypt and set tokens
-            integration.oauth_token = access_token
-            if refresh_token:
-                integration.refresh_token = refresh_token
+            # Store Meta-specific fields if present (Requirement 8.7)
+            if meta_business_id:
+                integration.meta_business_id = meta_business_id
+            if meta_waba_id:
+                integration.meta_waba_id = meta_waba_id
+            if meta_phone_number_id:
+                integration.meta_phone_number_id = meta_phone_number_id
+            if meta_config:
+                integration.meta_config = meta_config
             
             await integration.asave()
             
@@ -356,8 +486,8 @@ class InstallationService:
             )
         
         logger.info(
-            f'Completed OAuth flow for session {session.id}, '
-            f'created integration {integration.id}'
+            f'Completed authentication flow for session {session.id}, '
+            f'created integration {integration.id}, auth_type={integration_type.auth_type}'
         )
         
         # Trigger template instantiation (async, non-blocking)
@@ -376,6 +506,34 @@ class InstallationService:
             )
         
         return integration
+    
+    @staticmethod
+    async def complete_oauth_flow(
+        session_id: str,
+        authorization_code: str,
+        state: str
+    ) -> Integration:
+        """
+        Backward compatibility wrapper for complete_authentication_flow.
+        
+        DEPRECATED: Use complete_authentication_flow instead.
+        
+        Args:
+            session_id: UUID of InstallationSession
+            authorization_code: Authorization code from callback
+            state: State parameter for validation
+            
+        Returns:
+            Integration: Created integration instance
+        """
+        logger.warning(
+            'complete_oauth_flow is deprecated. Use complete_authentication_flow instead.'
+        )
+        return await InstallationService.complete_authentication_flow(
+            session_id=session_id,
+            authorization_code=authorization_code,
+            state=state
+        )
 
     @staticmethod
     def get_installation_progress(session_id: str) -> Dict[str, Any]:
@@ -400,9 +558,13 @@ class InstallationService:
             
         Requirements: 11.2-11.5
         """
-        session = InstallationSession.objects.select_related(
-            'integration_type'
-        ).get(id=session_id)
+        # Get session using optimized selector
+        session = InstallationSessionSelector.get_session_by_id(session_id)
+        
+        if not session:
+            raise InstallationSession.DoesNotExist(
+                f'Installation session {session_id} not found'
+            )
         
         # Build status message based on phase
         status_messages = {
@@ -439,8 +601,9 @@ class InstallationService:
         """
         Uninstall an integration.
         
-        Checks for dependent workflows, disables them, deletes the Integration
-        record (which cascades to encrypted tokens), and logs the uninstallation.
+        Checks for dependent workflows, disables them, revokes credentials
+        using the appropriate strategy, deletes the Integration record,
+        and logs the uninstallation.
         
         Args:
             user: User instance
@@ -458,7 +621,7 @@ class InstallationService:
             Integration.DoesNotExist: If integration not found
             ValueError: If confirmation required but force=False
             
-        Requirements: 5.4-5.6, 18.5-18.6
+        Requirements: 5.4-5.6, 8.6, 18.5-18.6
         """
         from apps.automation.models import Workflow
         
@@ -514,13 +677,13 @@ class InstallationService:
                 workflow.save(update_fields=['is_active', 'updated_at'])
                 disabled_count += 1
             
-            # Revoke OAuth tokens with provider (best effort)
+            # Revoke credentials using strategy (Requirement 8.6)
             try:
-                InstallationService._revoke_oauth_tokens(integration)
+                InstallationService._revoke_credentials_with_strategy(integration)
             except Exception as e:
                 # Log error but don't fail uninstallation
                 logger.error(
-                    f'Failed to revoke OAuth tokens for integration {integration_id}: {str(e)}'
+                    f'Failed to revoke credentials for integration {integration_id}: {str(e)}'
                 )
             
             # Delete Integration record (cascades to encrypted tokens)
@@ -530,6 +693,7 @@ class InstallationService:
         logger.info(
             f'Uninstalled integration {integration_id} for user {user.id}, '
             f'integration type {integration.integration_type.name}, '
+            f'auth_type={integration.integration_type.auth_type}, '
             f'disabled {disabled_count} workflows'
         )
         
@@ -541,6 +705,7 @@ class InstallationService:
         #     resource_id=integration_id,
         #     details={
         #         'integration_type': integration.integration_type.name,
+        #         'auth_type': integration.integration_type.auth_type,
         #         'disabled_workflows': disabled_count,
         #     }
         # )
@@ -553,63 +718,45 @@ class InstallationService:
         }
     
     @staticmethod
-    def _revoke_oauth_tokens(integration: Integration) -> None:
+    def _revoke_credentials_with_strategy(integration: Integration) -> None:
         """
-        Revoke OAuth tokens with the provider.
+        Revoke credentials using the appropriate authentication strategy.
         
-        Makes a best-effort attempt to revoke tokens. Failures are logged
-        but don't prevent uninstallation.
+        Uses AuthStrategyFactory to get the correct strategy and revoke
+        credentials with the provider.
         
         Args:
-            integration: Integration instance with tokens to revoke
+            integration: Integration instance with credentials to revoke
             
-        Requirements: 18.5
+        Requirements: 8.6, 18.5
         """
-        oauth_config = integration.integration_type.oauth_config
-        revoke_url = oauth_config.get('revoke_url')
-        
-        if not revoke_url:
-            # Not all providers support token revocation
-            logger.debug(
-                f'No revoke_url configured for {integration.integration_type.name}, '
-                'skipping token revocation'
-            )
-            return
-        
-        # Get access token
-        access_token = integration.oauth_token
-        if not access_token:
-            logger.debug('No access token to revoke')
-            return
-        
-        # Attempt to revoke token
         try:
-            import httpx
+            # Create strategy using factory
+            strategy = AuthStrategyFactory.create_strategy(integration.integration_type)
             
-            with httpx.Client() as client:
-                response = client.post(
-                    revoke_url,
-                    data={'token': access_token},
-                    headers={'Content-Type': 'application/x-www-form-urlencoded'},
-                    timeout=10.0
-                )
-                
-                if response.status_code in [200, 204]:
-                    logger.info(
-                        f'Successfully revoked OAuth token for integration {integration.id}'
-                    )
-                else:
-                    logger.warning(
-                        f'Token revocation returned status {response.status_code} '
-                        f'for integration {integration.id}'
-                    )
-                    
+            # Revoke credentials (async operation, run synchronously here)
+            import asyncio
+            
+            try:
+                # Try to get running event loop
+                loop = asyncio.get_running_loop()
+                # If we're already in an async context, create a task
+                asyncio.create_task(strategy.revoke_credentials(integration))
+            except RuntimeError:
+                # No running loop, create new one
+                asyncio.run(strategy.revoke_credentials(integration))
+            
+            logger.info(
+                f'Successfully revoked credentials for integration {integration.id}, '
+                f'auth_type={integration.integration_type.auth_type}'
+            )
+            
         except Exception as e:
             logger.error(
-                f'Failed to revoke OAuth token for integration {integration.id}: {str(e)}'
+                f'Failed to revoke credentials for integration {integration.id}: {str(e)}'
             )
             # Don't raise - this is best effort
-
+    
     @staticmethod
     def handle_oauth_callback_error(
         session_id: str,
@@ -632,10 +779,13 @@ class InstallationService:
             
         Requirements: 15.1-15.5
         """
-        # Get session
-        session = InstallationSession.objects.select_related(
-            'integration_type', 'user'
-        ).get(id=session_id)
+        # Get session using optimized selector
+        session = InstallationSessionSelector.get_session_by_id(session_id)
+        
+        if not session:
+            raise InstallationSession.DoesNotExist(
+                f'Installation session {session_id} not found'
+            )
         
         # Build error details
         error_details = error_description or f'OAuth error: {error_type}'
@@ -678,10 +828,13 @@ class InstallationService:
             
         Requirements: 15.2-15.3
         """
-        # Get session
-        session = InstallationSession.objects.select_related(
-            'integration_type', 'user'
-        ).get(id=session_id)
+        # Get session using optimized selector
+        session = InstallationSessionSelector.get_session_by_id(session_id)
+        
+        if not session:
+            raise InstallationSession.DoesNotExist(
+                f'Installation session {session_id} not found'
+            )
         
         # Use recovery utility to reset session
         reset_session = InstallationRecovery.reset_session_for_retry(session)

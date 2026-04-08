@@ -1,10 +1,11 @@
 """
 Token refresh service for managing OAuth token lifecycle.
 
-Handles automatic token refresh before expiration and marks
-integrations as disconnected when refresh fails.
+Handles automatic token refresh before expiration using appropriate
+authentication strategies and marks integrations as disconnected when
+refresh fails.
 
-Requirements: 15.7
+Requirements: 5.3, 6.5
 """
 
 import logging
@@ -14,210 +15,195 @@ from typing import Optional
 from django.utils import timezone
 from django.db import transaction
 
-from apps.automation.models import Integration
-from apps.automation.utils.oauth_client import OAuthClient, OAuthTokenRefreshError
-from apps.automation.utils.encryption import TokenEncryption
+from apps.automation.models import Integration, AuthType
+from apps.automation.services.auth_strategy_factory import AuthStrategyFactory
 
 
 logger = logging.getLogger(__name__)
 
 
-class TokenRefreshService:
+class IntegrationRefreshService:
     """
-    Service for refreshing OAuth tokens before expiration.
+    Service for refreshing integration credentials before expiration.
     
-    Checks token expiration and attempts refresh before workflow execution.
-    Marks integrations as disconnected if refresh fails.
+    Uses appropriate authentication strategy to refresh tokens and
+    handles refresh failures gracefully.
     
-    Requirements: 15.7
-    - Check token_expires_at before workflow execution
-    - Attempt refresh before marking integration as disconnected
-    - Log refresh attempts and failures
+    Requirements: 5.3, 6.5
     """
     
     # Refresh tokens when they expire within this window
-    REFRESH_WINDOW_MINUTES = 5
+    REFRESH_WINDOW_HOURS = 24
     
-    @staticmethod
-    async def refresh_if_expired(integration: Integration) -> bool:
+    def refresh_integration(self, integration: Integration) -> bool:
         """
-        Check if token is expired and refresh if needed.
+        Refresh integration credentials using appropriate strategy.
         
         Args:
-            integration: Integration instance to check and refresh
+            integration: Integration instance to refresh
             
         Returns:
-            bool: True if token is valid (either not expired or successfully refreshed),
-                  False if refresh failed
-                  
-        Requirements: 15.7
+            bool: True if refresh succeeded, False if failed
+            
+        Requirements: 5.3, 6.5
         """
-        # Check if token needs refresh
-        if not TokenRefreshService._needs_refresh(integration):
-            logger.debug(
-                f"Integration {integration.id} token is still valid, "
-                f"expires at {integration.token_expires_at}"
-            )
-            return True
-        
-        logger.info(
-            f"Integration {integration.id} token expired or expiring soon, "
-            f"attempting refresh"
-        )
-        
-        # Attempt refresh
         try:
-            await TokenRefreshService._refresh_token(integration)
-            return True
-        except Exception as e:
-            logger.error(
-                f"Failed to refresh token for integration {integration.id}: {str(e)}"
+            # Get authentication strategy for this integration type
+            strategy = AuthStrategyFactory.create_strategy(
+                integration.integration_type
             )
             
-            # Mark integration as disconnected
-            TokenRefreshService._mark_disconnected(integration, str(e))
+            # Attempt credential refresh
+            result = strategy.refresh_credentials(integration)
+            
+            # Update integration with new credentials
+            with transaction.atomic():
+                # Update access token
+                if result.access_token:
+                    integration.oauth_token = result.access_token
+                
+                # Update refresh token if provided
+                if result.refresh_token:
+                    integration.refresh_token = result.refresh_token
+                
+                # Update expiration time
+                if result.expires_at:
+                    integration.token_expires_at = result.expires_at
+                
+                # Update metadata if provided
+                if result.metadata:
+                    integration.user_config.update(result.metadata)
+                
+                # Reset health status
+                integration.health_status = 'healthy'
+                integration.consecutive_failures = 0
+                integration.last_successful_sync_at = timezone.now()
+                integration.status = 'active'
+                
+                integration.save(update_fields=[
+                    'access_token_encrypted',
+                    'refresh_token_encrypted',
+                    'token_expires_at',
+                    'user_config',
+                    'health_status',
+                    'consecutive_failures',
+                    'last_successful_sync_at',
+                    'status',
+                    'updated_at'
+                ])
+            
+            logger.info(
+                f"Successfully refreshed integration {integration.id}",
+                extra={
+                    'integration_id': str(integration.id),
+                    'integration_type': integration.integration_type.type,
+                    'new_expiry': str(integration.token_expires_at)
+                }
+            )
+            
+            return True
+            
+        except Exception as e:
+            logger.error(
+                f"Failed to refresh integration {integration.id}: {str(e)}",
+                extra={
+                    'integration_id': str(integration.id),
+                    'integration_type': integration.integration_type.type,
+                    'error': str(e)
+                }
+            )
+            
+            # Handle refresh failure
+            self._handle_refresh_failure(integration, str(e))
             return False
     
-    @staticmethod
-    def _needs_refresh(integration: Integration) -> bool:
+    def _handle_refresh_failure(
+        self,
+        integration: Integration,
+        error_message: str
+    ) -> None:
         """
-        Check if integration token needs refresh.
+        Handle integration refresh failure.
+        
+        Updates health status and marks as disconnected after
+        multiple consecutive failures.
+        
+        Args:
+            integration: Integration that failed to refresh
+            error_message: Error message from refresh attempt
+            
+        Requirements: 5.3, 6.5, 23.1-23.5
+        """
+        with transaction.atomic():
+            # Increment failure counter
+            integration.consecutive_failures += 1
+            previous_status = integration.health_status
+            
+            # Update health status based on failure count
+            if integration.consecutive_failures >= 10:
+                integration.health_status = 'disconnected'
+                integration.status = 'disconnected'
+                integration.is_active = False
+                
+                # Notify user if status just changed to disconnected
+                if previous_status != 'disconnected':
+                    from apps.automation.tasks.notification_tasks import notify_integration_disconnected
+                    notify_integration_disconnected.delay(str(integration.id))
+                    
+            elif integration.consecutive_failures >= 3:
+                integration.health_status = 'degraded'
+            
+            integration.save(update_fields=[
+                'consecutive_failures',
+                'health_status',
+                'status',
+                'is_active',
+                'updated_at'
+            ])
+        
+        logger.warning(
+            f"Integration {integration.id} health status: {integration.health_status}",
+            extra={
+                'integration_id': str(integration.id),
+                'consecutive_failures': integration.consecutive_failures,
+                'health_status': integration.health_status,
+                'error': error_message
+            }
+        )
+    
+    def needs_refresh(self, integration: Integration) -> bool:
+        """
+        Check if integration credentials need refresh.
         
         Args:
             integration: Integration instance
             
         Returns:
-            bool: True if token is expired or expiring soon
+            bool: True if credentials are expired or expiring soon
+            
+        Requirements: 5.3
         """
+        # API keys don't expire
+        if integration.integration_type.auth_type == AuthType.API_KEY:
+            return False
+        
         # If no expiry time set, assume it needs refresh
         if not integration.token_expires_at:
             return True
         
         # Check if token is expired or expiring within refresh window
         refresh_threshold = timezone.now() + timedelta(
-            minutes=TokenRefreshService.REFRESH_WINDOW_MINUTES
+            hours=self.REFRESH_WINDOW_HOURS
         )
         
         return integration.token_expires_at <= refresh_threshold
     
-    @staticmethod
-    async def _refresh_token(integration: Integration) -> None:
+    def refresh_expiring_integrations(self, batch_size: int = 50) -> dict:
         """
-        Refresh OAuth token for integration.
+        Refresh all integrations with credentials expiring soon.
         
-        Args:
-            integration: Integration instance
-            
-        Raises:
-            OAuthTokenRefreshError: If refresh fails
-        """
-        # Get refresh token
-        refresh_token = integration.refresh_token
-        
-        if not refresh_token:
-            raise OAuthTokenRefreshError(
-                "No refresh token available for integration"
-            )
-        
-        # Build OAuth client
-        oauth_client = OAuthClient.from_integration_type(
-            integration.integration_type,
-            redirect_uri='https://placeholder.com/callback'  # Not used for refresh
-        )
-        
-        # Attempt token refresh
-        try:
-            token_data = await oauth_client.refresh_token(refresh_token)
-        except OAuthTokenRefreshError as e:
-            logger.error(
-                f"OAuth provider rejected token refresh for integration {integration.id}: {str(e)}"
-            )
-            raise
-        
-        # Update integration with new tokens
-        with transaction.atomic():
-            # Encrypt and store new access token
-            access_token = token_data.get('access_token')
-            if access_token:
-                encrypted_token = TokenEncryption.encrypt(access_token)
-                integration.oauth_token_encrypted = encrypted_token
-            
-            # Update refresh token if provider issued a new one
-            new_refresh_token = token_data.get('refresh_token')
-            if new_refresh_token:
-                encrypted_refresh = TokenEncryption.encrypt(new_refresh_token)
-                integration.refresh_token_encrypted = encrypted_refresh
-            
-            # Update expiration time
-            expires_in = token_data.get('expires_in')
-            if expires_in:
-                integration.token_expires_at = timezone.now() + timedelta(
-                    seconds=expires_in
-                )
-            
-            integration.save(update_fields=[
-                'oauth_token_encrypted',
-                'refresh_token_encrypted',
-                'token_expires_at',
-                'updated_at'
-            ])
-        
-        logger.info(
-            f"Successfully refreshed token for integration {integration.id}, "
-            f"new expiry: {integration.token_expires_at}"
-        )
-    
-    @staticmethod
-    def _mark_disconnected(integration: Integration, error_message: str) -> None:
-        """
-        Mark integration as disconnected after failed refresh.
-        
-        Args:
-            integration: Integration instance
-            error_message: Error message from refresh attempt
-        """
-        with transaction.atomic():
-            integration.is_active = False
-            integration.save(update_fields=['is_active', 'updated_at'])
-        
-        logger.warning(
-            f"Marked integration {integration.id} as disconnected due to "
-            f"token refresh failure: {error_message}"
-        )
-        
-        # TODO: Notify user about disconnected integration
-        # This could be done via email, push notification, or in-app notification
-    
-    @staticmethod
-    async def refresh_integration_by_id(integration_id: str) -> bool:
-        """
-        Refresh integration token by ID.
-        
-        Convenience method for refreshing a specific integration.
-        
-        Args:
-            integration_id: UUID of integration
-            
-        Returns:
-            bool: True if refresh succeeded or not needed, False if failed
-        """
-        try:
-            integration = Integration.objects.select_related(
-                'integration_type'
-            ).get(id=integration_id)
-        except Integration.DoesNotExist:
-            logger.error(f"Integration {integration_id} not found")
-            return False
-        
-        return await TokenRefreshService.refresh_if_expired(integration)
-    
-    @staticmethod
-    async def refresh_all_expiring_tokens(batch_size: int = 50) -> dict:
-        """
-        Refresh all tokens that are expiring soon.
-        
-        This method can be called periodically (e.g., via cron job or Celery task)
-        to proactively refresh tokens before they expire.
+        This method can be called periodically (e.g., via Celery task)
+        to proactively refresh credentials before they expire.
         
         Args:
             batch_size: Number of integrations to process in one batch
@@ -228,6 +214,8 @@ class TokenRefreshService:
                 - refreshed: Number successfully refreshed
                 - failed: Number that failed refresh
                 - skipped: Number that didn't need refresh
+                
+        Requirements: 5.3, 6.5
         """
         stats = {
             'total': 0,
@@ -238,27 +226,33 @@ class TokenRefreshService:
         
         # Find integrations with tokens expiring soon
         refresh_threshold = timezone.now() + timedelta(
-            minutes=TokenRefreshService.REFRESH_WINDOW_MINUTES
+            hours=self.REFRESH_WINDOW_HOURS
         )
         
         integrations = Integration.objects.select_related(
             'integration_type'
         ).filter(
             is_active=True,
-            token_expires_at__lte=refresh_threshold
+            token_expires_at__lte=refresh_threshold,
+            token_expires_at__gt=timezone.now()
+        ).exclude(
+            integration_type__auth_type=AuthType.API_KEY
         )[:batch_size]
         
         logger.info(
-            f"Found {integrations.count()} integrations with expiring tokens"
+            f"Found {integrations.count()} integrations with expiring credentials"
         )
         
         for integration in integrations:
             stats['total'] += 1
             
             try:
-                if TokenRefreshService._needs_refresh(integration):
-                    await TokenRefreshService._refresh_token(integration)
-                    stats['refreshed'] += 1
+                if self.needs_refresh(integration):
+                    success = self.refresh_integration(integration)
+                    if success:
+                        stats['refreshed'] += 1
+                    else:
+                        stats['failed'] += 1
                 else:
                     stats['skipped'] += 1
             except Exception as e:
@@ -266,10 +260,10 @@ class TokenRefreshService:
                     f"Failed to refresh integration {integration.id}: {str(e)}"
                 )
                 stats['failed'] += 1
-                TokenRefreshService._mark_disconnected(integration, str(e))
+                self._handle_refresh_failure(integration, str(e))
         
         logger.info(
-            f"Token refresh batch complete: {stats['refreshed']} refreshed, "
+            f"Credential refresh batch complete: {stats['refreshed']} refreshed, "
             f"{stats['failed']} failed, {stats['skipped']} skipped"
         )
         
