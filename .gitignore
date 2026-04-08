@@ -15,4 +15,8 @@ wheels/
 .env
 .hypothesis
 
+# Logs
+logs/
+*.log
+
 neuro-frontend
