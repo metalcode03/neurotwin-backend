@@ -116,7 +116,8 @@ This document defines requirements for transforming the NeuroTwin platform into 
 1. THE Model_Router SHALL accept brain_mode and operation_type as input parameters
 2. WHEN brain_mode is Brain and operation_type is simple_response, THE Model_Router SHALL select Cerebras
 3. WHEN brain_mode is Brain and operation_type is long_response, THE Model_Router SHALL select Gemini 2.5 Flash
-4. WHEN brain_mode is Brain and operation_type is complex_reasoning, THE Model_Router SHALL select Gemini 2.5 Pro
+4. WHEN brain_mode is Brain and operation_type is summarization, THE Model_Router SHALL select Mistral
+5. WHEN brain_mode is Brain and operation_type is complex_reasoning, THE Model_Router SHALL select Gemini 2.5 Pro
 5. WHEN brain_mode is Brain_Pro, THE Model_Router SHALL prioritize Gemini 3 Pro for all operation types
 6. WHEN brain_mode is Brain_Gen, THE Model_Router SHALL prioritize Gemini 3.1 Pro for all operation types
 7. THE Model_Router SHALL implement fallback logic to secondary models when primary model fails

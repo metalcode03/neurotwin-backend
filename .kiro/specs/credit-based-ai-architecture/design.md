@@ -21,6 +21,31 @@ This design transforms the NeuroTwin platform from direct model selection to a c
 - **Fail-Safe**: Credit validation before execution, no deduction on failure
 - **Backward Compatible**: Legacy API support with gradual migration path
 
+### Compatibility with Existing Codebase
+
+The following conflicts with the existing codebase must be resolved during implementation:
+
+**1. Model Name Alignment**
+The existing `AIModel` enum uses `"gemini-3-flash"` as the model identifier, but the credit architecture routes to `"gemini-2.5-flash"` and `"gemini-2.5-pro"`. These are distinct model names. The migration must update all existing Twin records and enum values to use the new model identifiers.
+
+**2. Twin Chat Endpoint Does Not Exist**
+`apps/twin/views.py` currently only contains onboarding, blend, and kill-switch views. There is no `/api/v1/twin/chat` endpoint. Task 9.1 must create this endpoint from scratch rather than modifying an existing one.
+
+**3. Exception Handler Conflict**
+`settings.py` registers `apps.automation.exception_handlers.custom_exception_handler` as the DRF exception handler. The credit spec defines its own handler in `apps/credits/exception_handlers.py`. The credits exception handler must delegate to the automation handler for non-credit errors, or the automation handler must be updated to handle credit exceptions — the recommended approach is to update the automation handler to also handle `InsufficientCreditsError`, `BrainModeRestrictedError`, and `ModelUnavailableError`, keeping a single registered handler.
+
+**4. CSM Integration in AIService**
+The `AIService.process_request()` must load the user's CSM profile via `CSMService` before generating a response when `cognitive_blend > 0`. The `cognitive_blend_value` stored in `AIRequestLog` should be read from the user's active Twin record (via `TwinService.get_twin()`), not passed as a raw parameter. This ensures personality context is applied consistently with the existing CSM architecture.
+
+**5. URL Namespace Alignment**
+The existing automation app uses `/api/v1/automations/` and `/api/v1/integrations/` (registered via `core/api/urls.py`). The credit spec's new endpoints (`/api/v1/credits/`, `/api/v1/twin/chat`, `/api/v1/admin/`) must be registered in `core/api/urls.py` following the same pattern, not added directly to `neurotwin/urls.py`.
+
+**6. Twin Model `MODEL_CHOICES` and `AuditLog` Duplication**
+`apps/twin/models.py` has `MODEL_CHOICES` hardcoded from the current `AIModel` enum values and contains a duplicated `AuditLog` class definition (appears twice in the file — this is a pre-existing bug). When updating `AIModel` enum values in task 2.4, `MODEL_CHOICES` in `Twin` must also be updated to match. The duplicate `AuditLog` class must be removed as part of the migration task.
+
+**7. Exception Handler — Extend, Don't Replace**
+`settings.py` registers `apps.automation.exception_handlers.custom_exception_handler`. Rather than creating a separate handler in `apps/credits/`, the credit-specific exceptions (`InsufficientCreditsError`, `BrainModeRestrictedError`, `ModelUnavailableError`) must be handled by extending the existing `custom_exception_handler` in `apps/automation/exception_handlers.py`. This keeps a single registered handler and avoids settings changes.
+
 ## Architecture
 
 ### High-Level System Architecture
@@ -201,7 +226,7 @@ routing_rules = {
     'brain': {
         'simple_response': 'cerebras',
         'long_response': 'gemini-2.5-flash',
-        'summarization': 'gemini-2.5-flash',
+        'summarization': 'mistral',
         'complex_reasoning': 'gemini-2.5-pro',
         'automation': 'gemini-2.5-pro'
     },
@@ -221,6 +246,8 @@ routing_rules = {
     }
 }
 ```
+
+**Note on Mistral**: Mistral is used in the Brain (free tier) routing for summarization tasks. It is not available in Brain Pro or Brain Gen modes. The `MistralService` provider must be implemented alongside Cerebras and Gemini.
 
 **Fallback Logic**:
 - Primary model failure → Try first fallback
@@ -258,10 +285,16 @@ class AIService:
 3. Estimate credit cost
 4. Validate sufficient credits
 5. Select model via ModelRouter
-6. Execute request through provider
-7. Deduct actual credits based on token usage
-8. Create usage and request logs
-9. Return response with metadata
+6. Load CSM profile via `CSMService.get_profile(user_id)` and read `cognitive_blend` from the user's active Twin via `TwinService.get_twin(user_id)` — apply personality context proportionally to blend value before constructing the final prompt
+7. Execute request through provider
+8. Deduct actual credits based on token usage
+9. Create usage and request logs (store `cognitive_blend_value` from Twin record)
+10. Return response with metadata
+
+**CSM Integration**:
+- When `cognitive_blend > 0`, prepend a system prompt derived from the CSM profile (tone, vocabulary, communication style) to the provider request
+- When `cognitive_blend == 0`, send the raw prompt with no personality overlay
+- If CSM profile is not found, proceed without personality overlay and log a warning — do not fail the request
 
 **Error Handling**:
 - `InsufficientCreditsError` (402): Return remaining balance and required amount
@@ -2002,7 +2035,7 @@ class UserRateThrottle(UserRateThrottle):
 
 ### Property 12: Model Routing Rules
 
-*For any* combination of brain_mode and operation_type, the ModelRouter should select a model according to the configured routing rules, where brain mode with simple_response selects cerebras, brain mode with long_response or summarization selects gemini-2.5-flash, brain mode with complex_reasoning or automation selects gemini-2.5-pro, brain_pro mode selects gemini-3-pro for all operations, and brain_gen mode selects gemini-3.1-pro for all operations.
+*For any* combination of brain_mode and operation_type, the ModelRouter should select a model according to the configured routing rules, where brain mode with simple_response selects cerebras, brain mode with long_response selects gemini-2.5-flash, brain mode with summarization selects mistral, brain mode with complex_reasoning or automation selects gemini-2.5-pro, brain_pro mode selects gemini-3-pro for all operations, and brain_gen mode selects gemini-3.1-pro for all operations.
 
 **Validates: Requirements 6.2, 6.3, 6.4, 6.5, 6.6**
 

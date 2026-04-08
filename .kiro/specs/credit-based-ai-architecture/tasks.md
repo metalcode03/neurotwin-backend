@@ -8,99 +8,101 @@ The implementation follows a layered approach: database models and migrations fi
 
 ## Tasks
 
-- [ ] 1. Database models and migrations
-  - [ ] 1.1 Create UserCredits model with credit tracking fields
+- [x] 1. Database models and migrations
+  - [x] 1.1 Create UserCredits model with credit tracking fields
     - Create model in `apps/credits/models.py` with fields: user (OneToOne), monthly_credits, remaining_credits, used_credits, purchased_credits, last_reset_date, created_at, updated_at
     - Add database indexes on user_id and last_reset_date
     - Create migration file
     - _Requirements: 16.1, 16.2, 16.3_
 
-  - [ ] 1.2 Create CreditUsageLog model for audit trail
+  - [x] 1.2 Create CreditUsageLog model for audit trail
     - Create model with fields: user (ForeignKey), timestamp, credits_consumed, operation_type, brain_mode, model_used, request_id, created_at
     - Add composite indexes on (user_id, timestamp), (user_id, operation_type), (user_id, brain_mode)
     - Set ordering to ['-timestamp']
     - _Requirements: 16.4, 16.5, 16.6_
 
-  - [ ] 1.3 Create AIRequestLog model for comprehensive request logging
+  - [x] 1.3 Create AIRequestLog model for comprehensive request logging
     - Create model with UUID primary key and fields: user, timestamp, brain_mode, operation_type, model_used, prompt_length, response_length, tokens_used, credits_consumed, latency_ms, status, error_message, error_type, cognitive_blend_value, created_at
     - Add composite indexes on (user_id, timestamp), (user_id, status), (model_used, timestamp)
     - _Requirements: 16.7, 16.8, 16.9_
 
-  - [ ] 1.4 Create BrainRoutingConfig model for dynamic routing rules
+  - [x] 1.4 Create BrainRoutingConfig model for dynamic routing rules
     - Create model with fields: config_name (unique), routing_rules (JSONField), is_active, created_by, created_at, updated_at
     - Add validation for routing_rules JSON structure
     - _Requirements: 6.9_
 
-  - [ ] 1.5 Create CreditTopUp model for future credit purchases
+  - [x] 1.5 Create CreditTopUp model for future credit purchases
     - Create model with UUID primary key and fields: user, amount, price_paid, payment_method, transaction_id (unique), status, created_at, updated_at
     - Add composite index on (user_id, created_at) and index on transaction_id
     - _Requirements: 17.4, 17.5, 17.6_
 
-  - [ ] 1.6 Add brain_mode field to Twin model
+  - [x] 1.6 Add brain_mode field to Twin model
     - Add brain_mode CharField with choices (brain, brain_pro, brain_gen), nullable, default='brain'
     - Create migration to add field to existing Twin model
     - _Requirements: 16.10_
 
-  - [ ] 1.7 Run migrations and verify database schema
+  - [x] 1.7 Run migrations and verify database schema
     - Execute migrations: `uv run python manage.py migrate`
     - Verify all tables created with correct indexes
     - Test model creation and relationships
     - _Requirements: 16.1-16.10_
 
 
-- [ ] 2. Enums, constants, and dataclasses
-  - [ ] 2.1 Create BrainMode and OperationType enums
+- [x] 2. Enums, constants, and dataclasses
+  - [x] 2.1 Create BrainMode and OperationType enums
     - Create `apps/credits/enums.py` with BrainMode enum (BRAIN, BRAIN_PRO, BRAIN_GEN)
     - Create OperationType enum (SIMPLE_RESPONSE, LONG_RESPONSE, SUMMARIZATION, COMPLEX_REASONING, AUTOMATION)
     - Add value properties and validation methods
     - _Requirements: 3.1, 5.1_
 
-  - [ ] 2.2 Define credit allocation and routing constants
+  - [x] 2.2 Define credit allocation and routing constants
     - Create `apps/credits/constants.py` with TIER_CREDIT_ALLOCATIONS dict (FREE=50, PRO=2000, TWIN_PLUS=5000, EXECUTIVE=10000)
     - Define BRAIN_MODE_TIER_REQUIREMENTS dict mapping modes to allowed tiers
     - Define BASE_COSTS dict for operation types
     - Define BRAIN_MULTIPLIERS dict for brain modes
     - _Requirements: 1.3-1.6, 3.2-3.6, 3.8-3.10_
 
-  - [ ] 2.3 Create ProviderResponse dataclass
+  - [x] 2.3 Create ProviderResponse dataclass
     - Create `apps/credits/dataclasses.py` with ProviderResponse dataclass
     - Add fields: content, tokens_used, model_used, latency_ms, metadata
     - Add validation and helper methods
     - _Requirements: 8.5_
 
-  - [ ] 2.4 Update AIModel enum to replace Qwen with Cerebras
+  - [x] 2.4 Update AIModel enum to replace Qwen with Cerebras
     - Modify `apps/twin/dataclasses.py` AIModel enum
-    - Replace QWEN with CEREBRAS
-    - Update free_tier_models() and paid_tier_models() methods
+    - Replace QWEN with CEREBRAS (value: `"cerebras"`)
+    - Update model identifiers: GEMINI_FLASH → `"gemini-2.5-flash"`, add GEMINI_PRO_25 → `"gemini-2.5-pro"`, GEMINI_PRO_3 → `"gemini-3-pro"`, GEMINI_PRO_31 → `"gemini-3.1-pro"`
+    - Keep MISTRAL for backward compatibility but remove from `free_tier_models()` routing
+    - Update `free_tier_models()` and `paid_tier_models()` methods
     - _Requirements: 18.2_
 
-  - [ ] 2.5 Update TierFeatures dataclasses for Cerebras
+  - [x] 2.5 Update TierFeatures dataclasses for Cerebras
     - Modify `apps/subscription/dataclasses.py` TierFeatures
     - Replace 'qwen' with 'cerebras' in all available_models lists
     - Update free_tier(), pro_tier(), twin_plus_tier(), executive_tier() methods
     - _Requirements: 18.4_
 
-- [ ] 3. Credit management service
-  - [ ] 3.1 Implement CreditManager.get_balance() with Redis caching
+- [x] 3. Credit management service
+  - [x] 3.1 Implement CreditManager.get_balance() with Redis caching
     - Create `apps/credits/services.py` with CreditManager class
     - Implement get_balance() method with Redis cache (60s TTL)
     - Add cache key format: `credit_balance:{user_id}`
     - Fallback to database on cache miss and populate cache
     - _Requirements: 1.1, 1.10, 20.1_
 
-  - [ ] 3.2 Implement CreditManager.estimate_cost() calculation
+  - [x] 3.2 Implement CreditManager.estimate_cost() calculation
     - Implement estimate_cost() method with formula: base_cost × (tokens/1000) × brain_multiplier
     - Use BASE_COSTS and BRAIN_MULTIPLIERS constants
     - Return max(1, round(calculated_cost))
     - _Requirements: 3.1-3.11_
 
-  - [ ] 3.3 Implement CreditManager.check_sufficient_credits() validation
+  - [x] 3.3 Implement CreditManager.check_sufficient_credits() validation
     - Implement check_sufficient_credits() method
     - Compare remaining_credits with estimated_cost
     - Return boolean result
     - _Requirements: 4.1, 4.2, 4.4_
 
-  - [ ] 3.4 Implement CreditManager.deduct_credits() with atomic transaction
+  - [x] 3.4 Implement CreditManager.deduct_credits() with atomic transaction
     - Implement deduct_credits() method using SELECT FOR UPDATE
     - Use database transaction for atomicity
     - Invalidate Redis cache immediately after deduction
@@ -108,7 +110,7 @@ The implementation follows a layered approach: database models and migrations fi
     - Raise InsufficientCreditsError if balance insufficient
     - _Requirements: 3.1, 9.8, 20.3, 20.4_
 
-  - [ ] 3.5 Implement CreditManager.check_and_reset_if_needed() for monthly reset
+  - [x] 3.5 Implement CreditManager.check_and_reset_if_needed() for monthly reset
     - Implement check_and_reset_if_needed() method
     - Check if current date is first of month and last_reset_date is previous month
     - Set remaining_credits = monthly_credits, used_credits = 0
@@ -117,14 +119,14 @@ The implementation follows a layered approach: database models and migrations fi
     - Invalidate cache
     - _Requirements: 2.1-2.5_
 
-  - [ ] 3.6 Implement CreditManager.get_usage_history() with filtering
+  - [x] 3.6 Implement CreditManager.get_usage_history() with filtering
     - Implement get_usage_history() method with pagination
     - Support filters: date_range, operation_type, brain_mode
     - Return queryset of CreditUsageLog records
     - Calculate summary statistics (total consumed, average per request)
     - _Requirements: 10.1-10.6_
 
-  - [ ] 3.7 Implement CreditManager.get_usage_summary() for aggregated data
+  - [x] 3.7 Implement CreditManager.get_usage_summary() for aggregated data
     - Implement get_usage_summary() method
     - Aggregate usage by day for specified period
     - Group by operation_type and brain_mode
@@ -145,33 +147,33 @@ The implementation follows a layered approach: database models and migrations fi
     - Test insufficient credits error handling
 
 
-- [ ] 4. Model routing service
-  - [ ] 4.1 Create ModelRouter class with routing rule storage
+- [x] 4. Model routing service
+  - [x] 4.1 Create ModelRouter class with routing rule storage
     - Create `apps/credits/routing.py` with ModelRouter class
     - Implement load_routing_config() to load from BrainRoutingConfig model
     - Cache routing rules in memory with 5-minute refresh
     - _Requirements: 6.1, 6.9, 20.6_
 
-  - [ ] 4.2 Implement ModelRouter.select_model() with routing logic
+  - [x] 4.2 Implement ModelRouter.select_model() with routing logic
     - Implement select_model() method accepting brain_mode and operation_type
-    - Apply routing rules: brain+simple_response→cerebras, brain+long_response→gemini-2.5-flash, brain+complex_reasoning→gemini-2.5-pro
+    - Apply routing rules: brain+simple_response→cerebras, brain+long_response→gemini-2.5-flash, brain+summarization→mistral, brain+complex_reasoning→gemini-2.5-pro, brain+automation→gemini-2.5-pro
     - Apply brain_pro routing: all operations→gemini-3-pro
     - Apply brain_gen routing: all operations→gemini-3.1-pro
     - Return ModelSelection with primary model and fallback list
     - _Requirements: 6.2-6.6_
 
-  - [ ] 4.3 Implement ModelRouter.get_fallback_models() for failure handling
+  - [x] 4.3 Implement ModelRouter.get_fallback_models() for failure handling
     - Implement get_fallback_models() method
     - Define fallback order: cerebras→gemini-2.5-flash→gemini-2.5-pro
     - Return list of fallback models for given primary model
     - _Requirements: 6.7_
 
-  - [ ] 4.4 Implement routing decision logging
+  - [x] 4.4 Implement routing decision logging
     - Log each routing decision with selected_model, brain_mode, operation_type, selection_reason
     - Store in AIRequestLog for audit trail
     - _Requirements: 6.8_
 
-  - [ ] 4.5 Create default routing configuration seed data
+  - [x] 4.5 Create default routing configuration seed data
     - Create management command `seed_routing_config` in `apps/credits/management/commands/`
     - Insert default BrainRoutingConfig with production routing rules
     - Set is_active=True for default config
@@ -189,14 +191,14 @@ The implementation follows a layered approach: database models and migrations fi
     - Test routing config validation
     - Test cache refresh behavior
 
-- [ ] 5. Provider abstraction layer
-  - [ ] 5.1 Create AIProvider abstract base class
+- [x] 5. Provider abstraction layer
+  - [x] 5.1 Create AIProvider abstract base class
     - Create `apps/credits/providers/base.py` with AIProvider ABC
     - Define abstract methods: generate_response(), generate_embeddings(), estimate_tokens()
     - Define method signatures with type hints
     - _Requirements: 8.1_
 
-  - [ ] 5.2 Implement CerebrasService provider
+  - [x] 5.2 Implement CerebrasService provider
     - Create `apps/credits/providers/cerebras.py` with CerebrasService class extending AIProvider
     - Implement generate_response() with Cerebras API integration
     - Use CEREBRAS_API_KEY from environment variables
@@ -204,7 +206,7 @@ The implementation follows a layered approach: database models and migrations fi
     - Set timeout to 30 seconds
     - _Requirements: 7.2-7.5, 8.2_
 
-  - [ ] 5.3 Add Cerebras error handling and retry logic
+  - [x] 5.3 Add Cerebras error handling and retry logic
     - Implement exponential backoff for rate limit errors (429)
     - Retry up to 3 times with backoff: 1s, 2s, 4s
     - Raise CerebrasTimeoutError on timeout
@@ -212,68 +214,83 @@ The implementation follows a layered approach: database models and migrations fi
     - Raise CerebrasAPIError on other errors
     - _Requirements: 7.6, 7.9_
 
-  - [ ] 5.4 Add Cerebras request logging
+  - [x] 5.4 Add Cerebras request logging
     - Log all requests with timestamp, prompt_length, response_length, latency_ms
     - Log errors with full context for debugging
     - Sanitize prompts to remove PII before logging
     - _Requirements: 7.8_
 
-  - [ ] 5.5 Implement GeminiService provider
+  - [x] 5.5 Implement GeminiService provider
     - Create `apps/credits/providers/gemini.py` with GeminiService class extending AIProvider
     - Use existing google-genai SDK integration
     - Support model parameter for gemini-2.5-flash, gemini-2.5-pro, gemini-3-pro, gemini-3.1-pro
     - Use GOOGLE_API_KEY from settings
     - _Requirements: 8.3, 8.4_
 
-  - [ ] 5.6 Create provider registry for dynamic lookup
+  - [x] 5.6 Implement MistralService provider
+    - Create `apps/credits/providers/mistral.py` with MistralService class extending AIProvider
+    - Implement generate_response() with Mistral API integration
+    - Use MISTRAL_API_KEY from environment variables
+    - Used exclusively for Brain mode (free tier) summarization operations
+    - Implement exponential backoff for rate limit errors (429), max 3 retries
+    - Set timeout to 30 seconds
+    - Log all requests with timestamp, prompt_length, response_length, latency_ms
+    - _Requirements: 8.2, 8.5, 8.6_
+
+  - [x] 5.7 Create provider registry for dynamic lookup
     - Create `apps/credits/providers/registry.py` with ProviderRegistry class
-    - Register CerebrasService and GeminiService instances
+    - Register CerebrasService, GeminiService, and MistralService instances
     - Implement get_provider(model_name) method for dynamic lookup
     - Validate provider availability on startup
     - _Requirements: 8.7, 8.8, 8.10_
 
-  - [ ]* 5.7 Write unit tests for provider implementations
+  - [ ]* 5.8 Write unit tests for provider implementations
     - Test CerebrasService.generate_response() with mocked API
     - Test GeminiService.generate_response() with mocked SDK
+    - Test MistralService.generate_response() with mocked API
     - Test retry logic with simulated rate limits
     - Test error handling for various failure scenarios
     - Test request logging and PII sanitization
 
-- [ ] 6. AI service orchestration
-  - [ ] 6.1 Create AIService class with request orchestration
+- [x] 6. AI service orchestration
+  - [x] 6.1 Create AIService class with request orchestration
     - Create `apps/credits/ai_service.py` with AIService class
     - Implement process_request() method accepting user_id, prompt, brain_mode, operation_type, context
-    - Define execution flow: validate tier → check reset → estimate cost → validate credits → route → execute → deduct → log
+    - Define execution flow: validate tier → check reset → estimate cost → validate credits → route → load CSM profile → execute → deduct → log
+    - Load cognitive_blend from Twin record via `TwinService.get_twin(user_id)` — read `twin.cognitive_blend` and `twin.requires_confirmation`
+    - Load CSM profile via `CSMService.get_profile(user_id)` when cognitive_blend > 0; build system prompt from profile tone/vocabulary/communication fields proportional to blend percentage
+    - If CSM profile not found, proceed without personality overlay and log a warning
+    - Store cognitive_blend_value in AIRequestLog from Twin record
     - _Requirements: 9.1, 9.2_
 
-  - [ ] 6.2 Implement AIService.validate_brain_mode_access() for tier checking
+  - [x] 6.2 Implement AIService.validate_brain_mode_access() for tier checking
     - Implement validate_brain_mode_access() method
     - Check user's subscription_tier against BRAIN_MODE_TIER_REQUIREMENTS
     - Raise BrainModeRestrictedError if tier insufficient
     - _Requirements: 5.10, 9.2_
 
-  - [ ] 6.3 Integrate credit validation in AIService.process_request()
+  - [x] 6.3 Integrate credit validation in AIService.process_request()
     - Call CreditManager.check_and_reset_if_needed() before processing
     - Call CreditManager.estimate_cost() to calculate estimated credits
     - Call CreditManager.check_sufficient_credits() to validate balance
     - Raise InsufficientCreditsError if balance insufficient
     - _Requirements: 9.2, 9.3_
 
-  - [ ] 6.4 Integrate model routing in AIService.process_request()
+  - [x] 6.4 Integrate model routing in AIService.process_request()
     - Call ModelRouter.select_model() to get primary model and fallbacks
     - Get provider instance from ProviderRegistry
     - Execute request through provider.generate_response()
     - Implement fallback logic if primary model fails
     - _Requirements: 9.4, 9.5, 9.6_
 
-  - [ ] 6.5 Implement credit deduction and logging in AIService
+  - [x] 6.5 Implement credit deduction and logging in AIService
     - Call CreditManager.deduct_credits() with actual token usage after successful response
     - Create AIRequestLog record with request details, response metadata, execution time
     - Do NOT deduct credits if request fails
     - Log failure reason in AIRequestLog with status='failed'
     - _Requirements: 9.7, 9.8, 9.9, 9.10, 9.11_
 
-  - [ ] 6.6 Add comprehensive error handling to AIService
+  - [x] 6.6 Add comprehensive error handling to AIService
     - Handle InsufficientCreditsError → return 402 with remaining balance
     - Handle BrainModeRestrictedError → return 403 with required tier
     - Handle ModelUnavailableError → return 503 after exhausting fallbacks
@@ -295,44 +312,44 @@ The implementation follows a layered approach: database models and migrations fi
   - Verify routing rules load correctly from database
   - Ask the user if questions arise
 
-- [ ] 8. API endpoints for credit management
-  - [ ] 8.1 Create CreditViewSet with balance endpoint
+- [x] 8. API endpoints for credit management
+  - [x] 8.1 Create CreditViewSet with balance endpoint
     - Create `apps/credits/views.py` with CreditViewSet
     - Implement GET /api/v1/credits/balance endpoint
     - Return monthly_credits, remaining_credits, used_credits, purchased_credits, last_reset_date, next_reset_date, days_until_reset, usage_percentage
     - Require JWT authentication
     - _Requirements: 1.10, 4.5_
 
-  - [ ] 8.2 Implement credit estimate endpoint
+  - [x] 8.2 Implement credit estimate endpoint
     - Add GET /api/v1/credits/estimate endpoint to CreditViewSet
     - Accept query parameters: operation_type, brain_mode, estimated_tokens (default 500)
     - Call CreditManager.estimate_cost() and return estimated_cost, sufficient_credits, remaining_credits
     - _Requirements: 4.5_
 
-  - [ ] 8.3 Implement credit usage history endpoint
+  - [x] 8.3 Implement credit usage history endpoint
     - Add GET /api/v1/credits/usage endpoint to CreditViewSet
     - Support pagination with page_size=20
     - Support filters: start_date, end_date, operation_type, brain_mode
     - Return paginated CreditUsageLog records with summary statistics
     - _Requirements: 10.3, 10.4, 10.5, 10.6_
 
-  - [ ] 8.4 Implement credit usage summary endpoint
+  - [x] 8.4 Implement credit usage summary endpoint
     - Add GET /api/v1/credits/usage/summary endpoint to CreditViewSet
     - Accept query parameter: days (default 30)
     - Call CreditManager.get_usage_summary() and return aggregated data
     - Return daily breakdown, by_operation_type, by_brain_mode
     - _Requirements: 10.7, 10.8_
 
-  - [ ] 8.5 Create serializers for credit endpoints
+  - [x] 8.5 Create serializers for credit endpoints
     - Create `apps/credits/serializers.py` with CreditBalanceSerializer, CreditEstimateSerializer, CreditUsageLogSerializer, CreditUsageSummarySerializer
     - Add validation for operation_type and brain_mode enums
     - Add computed fields for next_reset_date and days_until_reset
     - _Requirements: 13.1, 13.2_
 
-  - [ ] 8.6 Add URL routing for credit endpoints
+  - [x] 8.6 Add URL routing for credit endpoints
     - Create `apps/credits/urls.py` with router registration
     - Register CreditViewSet with basename='credits'
-    - Include in main `neurotwin/urls.py` at path 'api/v1/credits/'
+    - Include in `core/api/urls.py` v1_patterns at path 'credits/' (following existing pattern — do NOT add to neurotwin/urls.py directly)
     - _Requirements: 13.1_
 
   - [ ]* 8.7 Write API tests for credit endpoints
@@ -342,40 +359,41 @@ The implementation follows a layered approach: database models and migrations fi
     - Test GET /api/v1/credits/usage/summary aggregation
     - Test authentication requirement for all endpoints
 
-- [ ] 9. API endpoints for AI requests
-  - [ ] 9.1 Update Twin chat endpoint to use AIService
-    - Modify `apps/twin/views.py` chat endpoint
+- [x] 9. API endpoints for AI requests
+  - [x] 9.1 Update Twin chat endpoint to use AIService
+    - Add new `TwinChatView` to `apps/twin/views.py` (this endpoint does not exist yet — create from scratch)
+    - Register at `path('chat', TwinChatView.as_view(), name='chat')` in `apps/twin/urls.py`
     - Accept brain_mode parameter in request body (optional, use user preference if not provided)
     - Accept operation_type parameter (default 'long_response')
-    - Call AIService.process_request() instead of direct model call
+    - Call AIService.process_request() — AIService will internally load CSM profile and cognitive_blend from Twin
     - Return response with metadata: brain_mode, model_used, tokens_used, credits_consumed, latency_ms, request_id
     - _Requirements: 15.1, 15.2, 9.11_
 
-  - [ ] 9.2 Add credits consumed to chat response
+  - [x] 9.2 Add credits consumed to chat response
     - Include credits object in response: {remaining, consumed}
     - Invalidate credit cache after successful request
     - _Requirements: 9.11_
 
-  - [ ] 9.3 Handle insufficient credits error in chat endpoint
+  - [x] 9.3 Handle insufficient credits error in chat endpoint
     - Catch InsufficientCreditsError from AIService
     - Return 402 Payment Required with error details
     - Include required_credits, remaining_credits, next_reset_date, upgrade_url
     - _Requirements: 4.1, 4.2, 4.3, 19.1, 19.2_
 
-  - [ ] 9.4 Handle brain mode restricted error in chat endpoint
+  - [x] 9.4 Handle brain mode restricted error in chat endpoint
     - Catch BrainModeRestrictedError from AIService
     - Return 403 Forbidden with error details
     - Include requested_mode, current_tier, required_tier, upgrade_url
     - _Requirements: 5.10, 19.3_
 
-  - [ ] 9.5 Create Twin generate endpoint for automation
+  - [x] 9.5 Create Twin generate endpoint for automation
     - Add POST /api/v1/twin/generate endpoint in `apps/twin/views.py`
     - Accept prompt, brain_mode, operation_type, max_tokens, temperature
     - Call AIService.process_request() for automation workflows
     - Return same response format as chat endpoint
     - _Requirements: 9.1-9.11_
 
-  - [ ] 9.6 Update Twin serializers for brain_mode
+  - [x] 9.6 Update Twin serializers for brain_mode
     - Modify `apps/twin/serializers.py` to include brain_mode field
     - Add validation for brain_mode against user's subscription tier
     - Add operation_type field with validation
@@ -388,20 +406,20 @@ The implementation follows a layered approach: database models and migrations fi
     - Test credits deducted after successful request
     - Test POST /api/v1/twin/generate for automation
 
-- [ ] 10. User settings endpoints for brain mode
-  - [ ] 10.1 Add brain_mode to user settings model
+- [x] 10. User settings endpoints for brain mode
+  - [x] 10.1 Add brain_mode to user settings model
     - Modify user settings model (or create if doesn't exist) to include brain_mode field
     - Set default to 'brain'
     - Add validation against subscription tier
     - _Requirements: 5.8, 15.7_
 
-  - [ ] 10.2 Implement GET /api/v1/users/settings endpoint
+  - [x] 10.2 Implement GET /api/v1/users/settings endpoint
     - Create or modify `apps/authentication/views.py` settings endpoint
     - Return brain_mode, cognitive_blend, notification_preferences, subscription_tier
     - Require JWT authentication
     - _Requirements: 15.7_
 
-  - [ ] 10.3 Implement PUT /api/v1/users/settings endpoint
+  - [x] 10.3 Implement PUT /api/v1/users/settings endpoint
     - Accept brain_mode parameter in request body
     - Validate brain_mode against user's subscription tier
     - Save preference and return updated settings
@@ -414,8 +432,8 @@ The implementation follows a layered approach: database models and migrations fi
     - Test default brain_mode is 'brain'
 
 
-- [ ] 11. Admin endpoints and monitoring
-  - [ ] 11.1 Create admin AI request log endpoint
+- [x] 11. Admin endpoints and monitoring
+  - [x] 11.1 Create admin AI request log endpoint
     - Create `apps/credits/admin_views.py` with AdminAIRequestViewSet
     - Implement GET /api/v1/admin/ai-requests endpoint
     - Support filters: user_id, brain_mode, model_used, status, start_date, end_date
@@ -424,7 +442,7 @@ The implementation follows a layered approach: database models and migrations fi
     - Require admin authentication (is_staff=True)
     - _Requirements: 11.5, 11.6, 11.7_
 
-  - [ ] 11.2 Create admin brain config endpoint
+  - [x] 11.2 Create admin brain config endpoint
     - Add POST /api/v1/admin/brain-config endpoint to AdminBrainConfigViewSet
     - Accept config_name and routing_rules JSON
     - Validate routing rules structure and model references
@@ -432,14 +450,14 @@ The implementation follows a layered approach: database models and migrations fi
     - Return validation status
     - _Requirements: 6.9, 21.1-21.10_
 
-  - [ ] 11.3 Create admin brain config activation endpoint
+  - [x] 11.3 Create admin brain config activation endpoint
     - Add PUT /api/v1/admin/brain-config/{id}/activate endpoint
     - Set is_active=True for specified config
     - Set is_active=False for all other configs
     - Invalidate routing cache
     - _Requirements: 6.9_
 
-  - [ ] 11.4 Implement health check endpoint
+  - [x] 11.4 Implement health check endpoint
     - Create GET /api/v1/health endpoint (no authentication required)
     - Check database connectivity
     - Check Redis connectivity
@@ -448,10 +466,10 @@ The implementation follows a layered approach: database models and migrations fi
     - Include metrics: credit_check_p95_latency_ms, ai_request_success_rate
     - _Requirements: 23.10_
 
-  - [ ] 11.5 Add admin URL routing
+  - [x] 11.5 Add admin URL routing
     - Create `apps/credits/admin_urls.py` with admin router
     - Register AdminAIRequestViewSet and AdminBrainConfigViewSet
-    - Include in main urls.py at path 'api/v1/admin/'
+    - Include in `core/api/urls.py` v1_patterns at path 'admin/' (following existing pattern)
     - Add permission class requiring is_staff=True
     - _Requirements: 13.1_
 
@@ -462,8 +480,8 @@ The implementation follows a layered approach: database models and migrations fi
     - Test brain config activation
     - Test health check endpoint
 
-- [ ] 12. Subscription integration
-  - [ ] 12.1 Create signal handler for user creation
+- [x] 12. Subscription integration
+  - [x] 12.1 Create signal handler for user creation
     - Create `apps/credits/signals.py` with post_save signal for User model
     - On user creation, create UserCredits record with credits based on subscription_tier
     - Use TIER_CREDIT_ALLOCATIONS to set monthly_credits
@@ -471,19 +489,19 @@ The implementation follows a layered approach: database models and migrations fi
     - Set last_reset_date to current date
     - _Requirements: 1.2-1.9_
 
-  - [ ] 12.2 Create signal handler for subscription tier changes
+  - [x] 12.2 Create signal handler for subscription tier changes
     - Add post_save signal for subscription tier updates
     - On tier upgrade, update monthly_credits and add difference to remaining_credits
     - On tier downgrade, update monthly_credits but preserve remaining_credits
     - _Requirements: 2.7_
 
-  - [ ] 12.3 Update subscription service for brain mode validation
+  - [x] 12.3 Update subscription service for brain mode validation
     - Modify `apps/subscription/services.py` to add can_access_brain_mode() method
     - Check user's tier against BRAIN_MODE_TIER_REQUIREMENTS
     - Return boolean result
     - _Requirements: 5.6, 5.7, 5.10_
 
-  - [ ] 12.4 Register signal handlers in app config
+  - [x] 12.4 Register signal handlers in app config
     - Modify `apps/credits/apps.py` to import signals in ready() method
     - Ensure signals are registered on app startup
     - _Requirements: 1.2_
@@ -501,26 +519,26 @@ The implementation follows a layered approach: database models and migrations fi
     - Test credits preserved on tier downgrade
     - Test can_access_brain_mode() for all tier/mode combinations
 
-- [ ] 13. Qwen to Cerebras migration
-  - [ ] 13.1 Create data migration to update Twin model records
+- [-] 13. Qwen to Cerebras migration
+  - [x] 13.1 Create data migration to update Twin model records
     - Create data migration in `apps/twin/migrations/`
     - Update all Twin records where model='qwen' to model='cerebras'
     - Make migration reversible (cerebras→qwen on rollback)
     - _Requirements: 18.1_
 
-  - [ ] 13.2 Update subscription service model access checks
+  - [x] 13.2 Update subscription service model access checks
     - Modify `apps/subscription/services.py` model access validation
     - Replace 'qwen' with 'cerebras' in model availability checks
     - Update free_tier_models() to include 'cerebras'
     - _Requirements: 18.6_
 
-  - [ ] 13.3 Add Cerebras configuration to settings
-    - Add CEREBRAS_API_KEY to `neurotwin/settings.py`
-    - Load from environment variable
+  - [x] 13.3 Add Cerebras and Mistral configuration to settings
+    - Add CEREBRAS_API_KEY to `neurotwin/settings.py`, load from environment variable
+    - Add MISTRAL_API_KEY to `neurotwin/settings.py`, load from environment variable
     - Remove Qwen-specific configuration if exists
     - _Requirements: 18.7, 18.8_
 
-  - [ ] 13.4 Update test fixtures for Cerebras
+  - [-] 13.4 Update test fixtures for Cerebras
     - Replace 'qwen' with 'cerebras' in all test fixtures
     - Update factory definitions if using factory_boy
     - Update mock data in tests
@@ -540,22 +558,22 @@ The implementation follows a layered approach: database models and migrations fi
   - Ask the user if questions arise
 
 
-- [ ] 15. Frontend type definitions and API client
-  - [ ] 15.1 Create Brain mode type definitions
+- [x] 15. Frontend type definitions and API client
+  - [x] 15.1 Create Brain mode type definitions
     - Create `neuro-frontend/src/types/brain.ts`
     - Define BrainMode type: 'brain' | 'brain_pro' | 'brain_gen'
     - Define OperationType type: 'simple_response' | 'long_response' | 'summarization' | 'complex_reasoning' | 'automation'
     - Define BrainModeInfo interface with id, title, description, requiredTier, multiplier
     - _Requirements: 5.1-5.5_
 
-  - [ ] 15.2 Create credit type definitions
+  - [x] 15.2 Create credit type definitions
     - Create `neuro-frontend/src/types/credits.ts`
     - Define CreditBalance interface with monthly_credits, remaining_credits, used_credits, purchased_credits, last_reset_date, next_reset_date, days_until_reset, usage_percentage
     - Define CreditUsageLog interface with id, timestamp, credits_consumed, operation_type, brain_mode, model_used, request_id
     - Define CreditEstimate interface with estimated_cost, operation_type, brain_mode, estimated_tokens, sufficient_credits, remaining_credits
     - _Requirements: 1.10, 4.5, 10.3_
 
-  - [ ] 15.3 Create credit API client functions
+  - [x] 15.3 Create credit API client functions
     - Create `neuro-frontend/src/lib/api/credits.ts`
     - Implement getBalance(): Promise<CreditBalance>
     - Implement estimate(params): Promise<CreditEstimate>
@@ -564,21 +582,21 @@ The implementation follows a layered approach: database models and migrations fi
     - Use existing api client with JWT authentication
     - _Requirements: 1.10, 4.5, 10.3, 10.7_
 
-  - [ ] 15.4 Create brain mode API client functions
+  - [x] 15.4 Create brain mode API client functions
     - Create `neuro-frontend/src/lib/api/brain.ts`
     - Implement getSettings(): Promise<UserSettings>
     - Implement updateSettings(brainMode): Promise<UserSettings>
     - _Requirements: 15.7, 15.8_
 
-  - [ ] 15.5 Update Twin API client for brain mode
+  - [x] 15.5 Update Twin API client for brain mode
     - Modify `neuro-frontend/src/lib/api/twin.ts` (or create if doesn't exist)
     - Update chat() function to accept brain_mode and operation_type parameters
     - Update response type to include metadata: brain_mode, model_used, tokens_used, credits_consumed, latency_ms, request_id
     - Add credits object to response: {remaining, consumed}
     - _Requirements: 15.1, 15.2, 9.11_
 
-- [ ] 16. Frontend custom hooks
-  - [ ] 16.1 Create useCredits hook for balance management
+- [x] 16. Frontend custom hooks
+  - [x] 16.1 Create useCredits hook for balance management
     - Create `neuro-frontend/src/hooks/useCredits.ts`
     - Use React Query with queryKey: ['credits', 'balance']
     - Set refetchInterval to 60000 (1 minute)
@@ -586,21 +604,21 @@ The implementation follows a layered approach: database models and migrations fi
     - Return data, isLoading, error, refetch
     - _Requirements: 13.11_
 
-  - [ ] 16.2 Create useCreditEstimate hook
+  - [x] 16.2 Create useCreditEstimate hook
     - Create `neuro-frontend/src/hooks/useCreditEstimate.ts`
     - Accept operationType, brainMode, estimatedTokens parameters
     - Use React Query with dynamic queryKey
     - Enable query only when operationType and brainMode are provided
     - _Requirements: 4.5_
 
-  - [ ] 16.3 Create useCreditUsage hook for history
+  - [x] 16.3 Create useCreditUsage hook for history
     - Create `neuro-frontend/src/hooks/useCreditUsage.ts`
     - Accept filters parameter: startDate, endDate, operationType, brainMode, page
     - Use React Query with dynamic queryKey based on filters
     - Return paginated usage logs with summary
     - _Requirements: 10.3_
 
-  - [ ] 16.4 Create useBrainMode hook for preference management
+  - [x] 16.4 Create useBrainMode hook for preference management
     - Create `neuro-frontend/src/hooks/useBrainMode.ts`
     - Fetch current brain_mode from user settings
     - Provide setBrainMode mutation function
@@ -608,14 +626,14 @@ The implementation follows a layered approach: database models and migrations fi
     - Return brainMode, setBrainMode, isLoading
     - _Requirements: 5.8, 15.8_
 
-  - [ ]* 16.5 Write tests for custom hooks
+  - [x]* 16.5 Write tests for custom hooks
     - Test useCredits fetches and caches balance
     - Test useCreditEstimate calculates correctly
     - Test useBrainMode updates preference
     - Test query invalidation after mutations
 
-- [ ] 17. BrainSelector component
-  - [ ] 17.1 Create BrainModeCard subcomponent
+- [x] 17. BrainSelector component
+  - [x] 17.1 Create BrainModeCard subcomponent
     - Create `neuro-frontend/src/components/brain/BrainModeCard.tsx`
     - Display mode icon, title, description, cost multiplier
     - Show lock icon and tier badge for restricted modes
@@ -624,13 +642,13 @@ The implementation follows a layered approach: database models and migrations fi
     - Add hover animation (scale and glow)
     - _Requirements: 12.2, 12.5, 12.6, 12.10_
 
-  - [ ] 17.2 Create BrainModeTooltip subcomponent
+  - [x] 17.2 Create BrainModeTooltip subcomponent
     - Create `neuro-frontend/src/components/brain/BrainModeTooltip.tsx`
     - Display tier requirement explanation
     - Show upgrade call-to-action for locked modes
     - _Requirements: 12.11_
 
-  - [ ] 17.3 Create BrainSelector main component
+  - [x] 17.3 Create BrainSelector main component
     - Create `neuro-frontend/src/components/brain/BrainSelector.tsx`
     - Accept props: currentMode, userTier, onModeChange, disabled
     - Render three BrainModeCard components in grid layout
@@ -641,28 +659,28 @@ The implementation follows a layered approach: database models and migrations fi
     - Call onModeChange when available card clicked
     - _Requirements: 12.1-12.11_
 
-  - [ ] 17.4 Add BrainSelector to dashboard settings page
+  - [x] 17.4 Add BrainSelector to dashboard settings page
     - Integrate BrainSelector into user settings or dashboard page
     - Connect to useBrainMode hook
     - Show success toast on mode change
     - _Requirements: 5.8_
 
-  - [ ]* 17.5 Write tests for BrainSelector
+  - [x]* 17.5 Write tests for BrainSelector
     - Test renders three mode cards
     - Test locks cards for restricted modes
     - Test calls onModeChange when available card clicked
     - Test shows tier badges correctly
     - Test disabled prop prevents interaction
 
-- [ ] 18. CreditDisplay component
-  - [ ] 18.1 Create CreditProgressBar subcomponent
+- [x] 18. CreditDisplay component
+  - [x] 18.1 Create CreditProgressBar subcomponent
     - Create `neuro-frontend/src/components/credits/CreditProgressBar.tsx`
     - Display horizontal progress bar with percentage fill
     - Use color coding: green (<50%), yellow (50-80%), red (>80%)
     - Smooth animation on value change
     - _Requirements: 13.3, 13.4, 13.5, 13.6_
 
-  - [ ] 18.2 Create CreditDisplay main component
+  - [x] 18.2 Create CreditDisplay main component
     - Create `neuro-frontend/src/components/credits/CreditDisplay.tsx`
     - Accept props: compact (boolean), showDetails (boolean)
     - Display format: "1,234 / 2,000 credits" with comma separators
@@ -673,18 +691,18 @@ The implementation follows a layered approach: database models and migrations fi
     - Use glass panel styling with backdrop blur
     - _Requirements: 13.1-13.11_
 
-  - [ ] 18.3 Add CreditDisplay to dashboard header
+  - [x] 18.3 Add CreditDisplay to dashboard header
     - Integrate CreditDisplay into dashboard header in compact mode
     - Connect to useCredits hook
     - Auto-refresh after AI requests
     - _Requirements: 13.11_
 
-  - [ ] 18.4 Add CreditDisplay to Twin chat interface
+  - [x] 18.4 Add CreditDisplay to Twin chat interface
     - Integrate CreditDisplay into chat sidebar in full mode with details
     - Show real-time credit updates after each message
     - _Requirements: 13.10, 13.11_
 
-  - [ ]* 18.5 Write tests for CreditDisplay
+  - [x]* 18.5 Write tests for CreditDisplay
     - Test displays balance correctly
     - Test shows warning at 80% usage
     - Test shows exhausted message at 0 credits
@@ -692,8 +710,8 @@ The implementation follows a layered approach: database models and migrations fi
     - Test compact and full modes
 
 
-- [ ] 19. CreditUsageHistory component
-  - [ ] 19.1 Create CreditUsageTable subcomponent
+- [x] 19. CreditUsageHistory component
+  - [x] 19.1 Create CreditUsageTable subcomponent
     - Create `neuro-frontend/src/components/credits/CreditUsageTable.tsx`
     - Display table with columns: timestamp, operation, brain_mode, model, credits_consumed
     - Support pagination with 20 records per page
@@ -701,7 +719,7 @@ The implementation follows a layered approach: database models and migrations fi
     - Add loading skeleton for data fetching
     - _Requirements: 14.2, 14.3_
 
-  - [ ] 19.2 Create CreditFilters subcomponent
+  - [x] 19.2 Create CreditFilters subcomponent
     - Create `neuro-frontend/src/components/credits/CreditFilters.tsx`
     - Date range filter with presets: Today, Last 7 Days, Last 30 Days, Custom
     - Operation type dropdown filter
@@ -709,21 +727,21 @@ The implementation follows a layered approach: database models and migrations fi
     - Apply/Reset buttons
     - _Requirements: 14.4, 14.5, 14.6_
 
-  - [ ] 19.3 Create CreditUsageChart subcomponent
+  - [x] 19.3 Create CreditUsageChart subcomponent
     - Create `neuro-frontend/src/components/credits/CreditUsageChart.tsx`
     - Display line chart showing daily credit consumption over time
     - Use chart library (recharts or similar)
     - Show tooltip with date and credits consumed
     - _Requirements: 14.8_
 
-  - [ ] 19.4 Create CreditBreakdownPie subcomponent
+  - [x] 19.4 Create CreditBreakdownPie subcomponent
     - Create `neuro-frontend/src/components/credits/CreditBreakdownPie.tsx`
     - Display pie chart for breakdown by category
     - Support two modes: by operation_type and by brain_mode
     - Show legend with percentages
     - _Requirements: 14.9, 14.10_
 
-  - [ ] 19.5 Create CreditUsageHistory main component
+  - [x] 19.5 Create CreditUsageHistory main component
     - Create `neuro-frontend/src/components/credits/CreditUsageHistory.tsx`
     - Create page at route /dashboard/credits
     - Display summary cards: Total Credits Used, Average per Request, Most Used Mode
@@ -733,38 +751,38 @@ The implementation follows a layered approach: database models and migrations fi
     - Connect to useCreditUsage hook with filters
     - _Requirements: 14.1-14.11_
 
-  - [ ] 19.6 Implement CSV export functionality
+  - [x] 19.6 Implement CSV export functionality
     - Add exportToCSV() function to download filtered usage data
     - Format as CSV with headers: Timestamp, Operation, Brain Mode, Model, Credits
     - Trigger browser download
     - _Requirements: 14.11_
 
-  - [ ] 19.7 Add navigation link to credit usage page
+  - [x] 19.7 Add navigation link to credit usage page
     - Add "Credit Usage" link to dashboard sidebar navigation
     - Show credit icon next to link
     - _Requirements: 14.1_
 
-  - [ ]* 19.8 Write tests for CreditUsageHistory
+  - [x]* 19.8 Write tests for CreditUsageHistory
     - Test table renders usage logs correctly
     - Test filters update query parameters
     - Test pagination works correctly
     - Test charts render with data
     - Test CSV export generates correct file
 
-- [ ] 20. ChatInterface integration with Brain mode
-  - [ ] 20.1 Update ChatInterface to include BrainSelector
+- [x] 20. ChatInterface integration with Brain mode
+  - [x] 20.1 Update ChatInterface to include BrainSelector
     - Modify `neuro-frontend/src/components/twin/ChatInterface.tsx` (or create if doesn't exist)
     - Add sidebar with CreditDisplay and BrainSelector
     - Connect to useBrainMode hook for current selection
     - _Requirements: 5.8, 13.11_
 
-  - [ ] 20.2 Update chat message sending to include brain_mode
+  - [x] 20.2 Update chat message sending to include brain_mode
     - Modify sendMessage mutation to include brain_mode parameter
     - Use current brain_mode from useBrainMode hook
     - Set operation_type to 'long_response' by default
     - _Requirements: 15.1, 15.2_
 
-  - [ ] 20.3 Handle insufficient credits error in chat
+  - [x] 20.3 Handle insufficient credits error in chat
     - Catch insufficient credits error from API
     - Display toast notification with error message
     - Show required credits and remaining balance
@@ -772,56 +790,56 @@ The implementation follows a layered approach: database models and migrations fi
     - Disable send button when credits = 0
     - _Requirements: 4.1, 4.2, 4.3, 19.1, 19.2_
 
-  - [ ] 20.4 Handle brain mode restricted error in chat
+  - [x] 20.4 Handle brain mode restricted error in chat
     - Catch brain mode restricted error from API
     - Display toast notification explaining tier requirement
     - Provide link to upgrade subscription
     - _Requirements: 5.10, 19.3_
 
-  - [ ] 20.5 Invalidate credit cache after successful message
+  - [x] 20.5 Invalidate credit cache after successful message
     - Call queryClient.invalidateQueries(['credits', 'balance']) after successful response
     - Update CreditDisplay to show new balance
     - _Requirements: 13.10_
 
-  - [ ] 20.6 Display credits consumed in message metadata
+  - [x] 20.6 Display credits consumed in message metadata
     - Show credits consumed for each AI response
     - Display model used and brain mode in message footer
     - _Requirements: 9.11_
 
-  - [ ]* 20.7 Write tests for ChatInterface integration
+  - [x]* 20.7 Write tests for ChatInterface integration
     - Test BrainSelector appears in sidebar
     - Test CreditDisplay updates after message
     - Test insufficient credits disables send button
     - Test error handling for credit and tier errors
 
-- [ ] 21. Performance optimization
-  - [ ] 21.1 Implement Redis caching for credit balances
+- [x] 21. Performance optimization
+  - [x] 21.1 Implement Redis caching for credit balances
     - Verify Redis configuration in settings.py
     - Implement cache.get() and cache.set() in CreditManager.get_balance()
     - Set TTL to 60 seconds
     - Implement cache invalidation on deduction
     - _Requirements: 20.1, 20.2_
 
-  - [ ] 21.2 Implement database query optimization
+  - [x] 21.2 Implement database query optimization
     - Add select_related() for UserCredits.user queries
     - Add prefetch_related() for usage log queries
     - Use only() to fetch specific fields in list views
     - Use iterator() for large querysets in admin views
     - _Requirements: 20.3_
 
-  - [ ] 21.3 Implement connection pooling
+  - [x] 21.3 Implement connection pooling
     - Verify CONN_MAX_AGE setting in database configuration
     - Set to 600 seconds (10 minutes)
     - Add connect_timeout and statement_timeout options
     - _Requirements: 20.7_
 
-  - [ ] 21.4 Implement routing rule caching
+  - [x] 21.4 Implement routing rule caching
     - Cache routing rules in memory with 5-minute TTL
     - Implement cache refresh on config update
     - Use threading.Lock for thread-safe cache access
     - _Requirements: 20.6_
 
-  - [ ] 21.5 Add database indexes
+  - [x] 21.5 Add database indexes
     - Verify all indexes created by migrations
     - Add composite indexes for common query patterns
     - Monitor query performance with Django Debug Toolbar (dev only)
@@ -833,40 +851,40 @@ The implementation follows a layered approach: database models and migrations fi
     - Test cache hit rate > 80%
     - Test usage history query < 200ms (p95)
 
-- [ ] 22. Security implementation
-  - [ ] 22.1 Implement API key encryption
+- [x] 22. Security implementation
+  - [x] 22.1 Implement API key encryption
     - Create encryption utility in `apps/core/encryption.py`
     - Use Fernet symmetric encryption for Cerebras API key
     - Store encryption key in environment variable ENCRYPTION_KEY
     - Encrypt keys before database storage, decrypt on retrieval
     - _Requirements: 22.1, 22.2_
 
-  - [ ] 22.2 Implement PII sanitization for logging
+  - [x] 22.2 Implement PII sanitization for logging
     - Create sanitize_prompt_for_logging() function in `apps/credits/utils.py`
     - Remove email addresses, phone numbers, credit card numbers using regex
     - Apply to all prompt logging in AIRequestLog
     - _Requirements: 22.4_
 
-  - [ ] 22.3 Implement rate limiting for credit endpoints
+  - [x] 22.3 Implement rate limiting for credit endpoints
     - Add custom throttle class CreditRateThrottle in `apps/credits/throttling.py`
     - Set rate to 100 requests per hour per user
     - Apply to all credit endpoints
     - _Requirements: 22.5_
 
-  - [ ] 22.4 Implement RBAC for admin endpoints
+  - [x] 22.4 Implement RBAC for admin endpoints
     - Create IsAdminUser permission class
     - Require is_staff=True for admin endpoints
     - Add permission_classes to AdminAIRequestViewSet and AdminBrainConfigViewSet
     - _Requirements: 22.8_
 
-  - [ ] 22.5 Implement input validation
+  - [x] 22.5 Implement input validation
     - Validate brain_mode against enum values in serializers
     - Validate operation_type against enum values
     - Validate estimated_tokens is positive integer
     - Validate date ranges for usage queries
     - _Requirements: 22.9_
 
-  - [ ]* 22.6 Write security tests
+  - [x]* 22.6 Write security tests
     - Test API key encryption/decryption
     - Test PII sanitization removes sensitive data
     - Test rate limiting blocks excessive requests
@@ -874,8 +892,8 @@ The implementation follows a layered approach: database models and migrations fi
     - Test input validation rejects invalid values
 
 
-- [ ] 23. Monitoring and observability
-  - [ ] 23.1 Implement Prometheus metrics
+- [x] 23. Monitoring and observability
+  - [x] 23.1 Implement Prometheus metrics
     - Install prometheus_client package: `uv add prometheus-client`
     - Create `apps/credits/metrics.py` with metric definitions
     - Define Counter: credit_checks_total, credit_deductions_total, ai_requests_total
@@ -883,13 +901,13 @@ The implementation follows a layered approach: database models and migrations fi
     - Instrument CreditManager and AIService methods
     - _Requirements: 23.1, 23.2_
 
-  - [ ] 23.2 Add metrics endpoint
+  - [x] 23.2 Add metrics endpoint
     - Create /metrics endpoint in urls.py
     - Expose Prometheus metrics in text format
     - Require authentication or IP whitelist for production
     - _Requirements: 23.1_
 
-  - [ ] 23.3 Implement structured logging
+  - [x] 23.3 Implement structured logging
     - Configure Django logging in settings.py
     - Use JSON formatter for structured logs
     - Log all credit operations with user_id, operation, amount, timestamp
@@ -897,13 +915,13 @@ The implementation follows a layered approach: database models and migrations fi
     - Log all provider errors with full context
     - _Requirements: 19.9, 23.9_
 
-  - [ ] 23.4 Create monitoring dashboard configuration
+  - [x] 23.4 Create monitoring dashboard configuration
     - Create Grafana dashboard JSON (optional, for documentation)
     - Define panels: credit consumption rate, AI request rate, success rate, latency percentiles
     - Define alerts: credit check latency > 100ms, AI request failure rate > 5%, provider failure rate > 10%
     - _Requirements: 23.4, 23.5, 23.6, 23.7, 23.8_
 
-  - [ ] 23.5 Implement health check logic
+  - [x] 23.5 Implement health check logic
     - Implement health check in admin_views.py
     - Check database: execute simple query
     - Check Redis: execute ping command
