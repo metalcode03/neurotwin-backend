@@ -1,7 +1,7 @@
 """
 Authentication API views.
 
-Requirements: 1.1-1.7, 13.1, 13.3
+Requirements: 1.1-1.7, 13.1, 13.3, 33.5, 33.6
 """
 
 from rest_framework import status
@@ -11,6 +11,7 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse
 
 from core.api.views import BaseAPIView
 from core.api.throttling import AuthRateThrottle
+from apps.automation.security import SecurityEventLogger, get_client_ip, get_user_agent
 from .services import AuthService
 from .serializers import (
     RegisterSerializer,
@@ -21,6 +22,8 @@ from .serializers import (
     PasswordResetSerializer,
     OAuthCallbackSerializer,
     LogoutSerializer,
+    UserSettingsSerializer,
+    UpdateUserSettingsSerializer,
 )
 
 
@@ -63,7 +66,11 @@ class RegisterView(BaseAPIView):
             )
         
         return self.created_response(
-            data={"user_id": result.user_id},
+            data={
+                "user_id": result.user_id,
+                "access_token": result.token,
+                "refresh_token": result.refresh_token,
+            },
             message="Account created. Please check your email for verification link."
         )
 
@@ -136,10 +143,21 @@ class LoginView(BaseAPIView):
                 status_code=status.HTTP_400_BAD_REQUEST
             )
         
+        email = serializer.validated_data['email']
         auth_service = AuthService()
         result = auth_service.login(
-            email=serializer.validated_data['email'],
+            email=email,
             password=serializer.validated_data['password']
+        )
+        
+        # Log authentication attempt
+        SecurityEventLogger.log_authentication_attempt(
+            user_id=result.user_id if result.success else None,
+            username=email,
+            success=result.success,
+            ip_address=get_client_ip(request),
+            user_agent=get_user_agent(request),
+            failure_reason=result.error if not result.success else None
         )
         
         if not result.success:
@@ -419,12 +437,203 @@ class CurrentUserView(BaseAPIView):
             data={
                 "id": str(user.id),
                 "email": user.email,
-                "username": "",  # Not yet implemented in User model
-                "display_name": "",  # Not yet implemented in User model
-                "profile_image": None,  # Not yet implemented in User model
+                "username": user.username,
+                "display_name": user.display_name,
+                "bio": user.bio,
+                "profile_image": request.build_absolute_uri(user.profile_image.url) if user.profile_image else None,
+                "phone_number": user.phone_number,
+                "whatsapp_number": user.whatsapp_number,
+                "use_default_for_whatsapp": user.use_default_for_whatsapp,
                 "is_verified": user.is_verified,
                 "is_active": user.is_active,
                 "created_at": user.created_at.isoformat(),
                 "oauth_provider": user.oauth_provider,
             }
         )
+
+
+class UserSettingsView(BaseAPIView):
+    """
+    GET /api/v1/users/settings
+    PUT /api/v1/users/settings
+    
+    Get or update user settings including brain_mode preference.
+    Requirements: 15.7, 15.8
+    """
+    permission_classes = [IsAuthenticated]
+    
+    @extend_schema(
+        responses={200: OpenApiResponse(description="User settings retrieved successfully")},
+    )
+    def get(self, request):
+        """
+        Get current user settings.
+        
+        Returns brain_mode, cognitive_blend, notification_preferences, and subscription_tier.
+        Requirements: 15.7
+        """
+        from .settings_service import UserSettingsService
+        from .serializers import UserSettingsSerializer
+        
+        settings_data = UserSettingsService.get_settings_data(request.user)
+        serializer = UserSettingsSerializer(settings_data)
+        
+        return self.success_response(data=serializer.data)
+    
+    @extend_schema(
+        request=UpdateUserSettingsSerializer,
+        responses={200: OpenApiResponse(description="User settings updated successfully")},
+    )
+    def put(self, request):
+        """
+        Update user settings.
+        
+        Accepts brain_mode parameter and validates against subscription tier.
+        Requirements: 15.8, 15.9, 15.10
+        """
+        from .settings_service import UserSettingsService
+        from .serializers import UpdateUserSettingsSerializer, UserSettingsSerializer
+        from django.core.exceptions import ValidationError
+        
+        # Validate input
+        serializer = UpdateUserSettingsSerializer(
+            data=request.data,
+            context={'user': request.user}
+        )
+        if not serializer.is_valid():
+            return self.error_response(
+                message="Validation error",
+                code="VALIDATION_ERROR",
+                details=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Update brain_mode
+        try:
+            UserSettingsService.update_brain_mode(
+                user=request.user,
+                brain_mode=serializer.validated_data['brain_mode']
+            )
+        except ValidationError as e:
+            return self.error_response(
+                message=str(e),
+                code="BRAIN_MODE_RESTRICTED",
+                status_code=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Return updated settings
+        settings_data = UserSettingsService.get_settings_data(request.user)
+        response_serializer = UserSettingsSerializer(settings_data)
+        
+        return self.success_response(
+            data=response_serializer.data,
+            message="Settings updated successfully"
+        )
+
+
+class UserProfileView(BaseAPIView):
+    """
+    GET /api/v1/users/profile
+    PUT /api/v1/users/profile
+    
+    Get or update user profile.
+    """
+    permission_classes = [IsAuthenticated]
+    
+    @extend_schema(
+        responses={200: OpenApiResponse(description="User profile retrieved successfully")},
+    )
+    def get(self, request):
+        from .serializers import UserProfileSerializer
+        serializer = UserProfileSerializer(request.user)
+        return self.success_response(data=serializer.data)
+        
+    @extend_schema(
+        # request=UserProfileSerializer,
+        responses={200: OpenApiResponse(description="User profile updated successfully")},
+    )
+    def put(self, request):
+        from .serializers import UserProfileSerializer
+        serializer = UserProfileSerializer(request.user, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return self.error_response(
+                message="Validation error",
+                code="VALIDATION_ERROR",
+                details=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        serializer.save()
+        return self.success_response(
+            data=serializer.data,
+            message="Profile updated successfully"
+        )
+
+
+class UserProfileImageView(BaseAPIView):
+    """
+    POST /api/v1/users/profile/image
+    
+    Upload a new profile image.
+    """
+    permission_classes = [IsAuthenticated]
+    
+    @extend_schema(
+        # request=ProfileImageSerializer,
+        responses={200: OpenApiResponse(description="Profile image updated successfully")},
+    )
+    def post(self, request):
+        from .serializers import ProfileImageSerializer
+        serializer = ProfileImageSerializer(data=request.data)
+        if not serializer.is_valid():
+            return self.error_response(
+                message="Validation error",
+                code="VALIDATION_ERROR",
+                details=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            
+        user = request.user
+        user.profile_image = serializer.validated_data['image']
+        user.save()
+        
+        return self.success_response(
+            data={"profile_image": request.build_absolute_uri(user.profile_image.url)},
+            message="Profile image updated successfully"
+        )
+
+
+class ChangePasswordView(BaseAPIView):
+    """
+    POST /api/v1/users/change-password
+    
+    Change user password via profile.
+    """
+    permission_classes = [IsAuthenticated]
+    
+    @extend_schema(
+        # request=ChangePasswordSerializer,
+        responses={200: OpenApiResponse(description="Password changed successfully")},
+    )
+    def post(self, request):
+        from .serializers import ChangePasswordSerializer
+        serializer = ChangePasswordSerializer(data=request.data)
+        if not serializer.is_valid():
+            return self.error_response(
+                message="Validation error",
+                code="VALIDATION_ERROR",
+                details=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            
+        user = request.user
+        if not user.check_password(serializer.validated_data['current_password']):
+            return self.error_response(
+                message="Incorrect current password",
+                code="INVALID_PASSWORD",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+            
+        user.set_password(serializer.validated_data['new_password'])
+        user.save()
+        
+        return self.success_response(message="Password changed successfully")

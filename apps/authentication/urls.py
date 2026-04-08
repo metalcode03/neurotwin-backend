@@ -17,6 +17,7 @@ from .views import (
     LogoutView,
     LogoutAllView,
     CurrentUserView,
+    UserSettingsView,
 )
 
 app_name = 'auth'

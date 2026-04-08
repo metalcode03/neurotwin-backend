@@ -135,7 +135,18 @@ class AuthService:
         # Create verification token
         self._create_verification_token(user)
         
-        return AuthResult.success_result(user_id=str(user.id))
+        # Generate JWT tokens for instant login upon registration
+        tokens = self._create_tokens_for_user(user)
+        
+        # Update last login timestamp
+        user.last_login = timezone.now()
+        user.save(update_fields=['last_login'])
+        
+        return AuthResult.success_result(
+            user_id=str(user.id),
+            token=tokens.access_token,
+            refresh_token=tokens.refresh_token
+        )
     
     def _create_verification_token(self, user: User) -> VerificationToken:
         """
