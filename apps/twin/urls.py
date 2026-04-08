@@ -1,7 +1,7 @@
 """
 Twin API URL configuration.
 
-Requirements: 2.1-2.6, 13.1
+Requirements: 2.1-2.6, 13.1, 15.1, 15.2
 """
 
 from django.urls import path
@@ -16,6 +16,8 @@ from .views import (
     KillSwitchActivateView,
     KillSwitchDeactivateView,
     KillSwitchStatusView,
+    TwinChatView,
+    TwinGenerateView,
 )
 
 app_name = 'twin'
@@ -31,6 +33,10 @@ urlpatterns = [
     path('blend', CognitiveBlendView.as_view(), name='blend'),
     path('deactivate', TwinDeactivateView.as_view(), name='deactivate'),
     path('reactivate', TwinReactivateView.as_view(), name='reactivate'),
+    
+    # Twin AI chat and generation
+    path('chat', TwinChatView.as_view(), name='chat'),
+    path('generate', TwinGenerateView.as_view(), name='generate'),
     
     # Kill-switch
     path('kill-switch/activate', KillSwitchActivateView.as_view(), name='kill-switch-activate'),

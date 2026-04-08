@@ -12,9 +12,15 @@ app_name = 'api'
 # API v1 URL patterns
 v1_patterns = [
     path('auth/', include('apps.authentication.urls', namespace='auth')),
+    path('users/', include('apps.authentication.urls_users', namespace='users')),
     path('twin/', include('apps.twin.urls', namespace='twin')),
     path('csm/', include('apps.csm.urls', namespace='csm')),
     path('subscription/', include('apps.subscription.urls', namespace='subscription')),
+    path('credits/', include('apps.credits.urls', namespace='credits')),
+    # Admin endpoints for credit system monitoring
+    path('admin/', include('apps.credits.admin_urls', namespace='credits_admin')),
+    # Health check endpoint (no authentication required)
+    path('health/', include('apps.credits.admin_urls', namespace='health')),
     # Dynamic App Marketplace API endpoints
     path('', include('apps.automation.urls', namespace='automation')),
     # Legacy automation endpoints (kept for backward compatibility)

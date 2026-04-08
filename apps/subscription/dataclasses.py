@@ -30,14 +30,14 @@ class TierFeatures:
         """
         Free tier features.
         
-        Requirements: 3.2
-        - Access to Gemini-3 Flash, Qwen, and Mistral models
+        Requirements: 3.2, 18.4
+        - Access to Cerebras, Gemini 2.5 Flash, and Mistral models
         - Chat and light memory features
         - No autonomous workflows
         """
         return cls(
             tier_name='free',
-            available_models=['gemini-3-flash', 'qwen', 'mistral'],
+            available_models=['cerebras', 'gemini-2.5-flash', 'mistral'],
             has_cognitive_learning=False,
             has_voice_twin=False,
             has_autonomous_workflows=False,
@@ -50,14 +50,14 @@ class TierFeatures:
         """
         Pro tier features.
         
-        Requirements: 3.3
-        - Access to Gemini-3 Pro
+        Requirements: 3.3, 18.4
+        - Access to Cerebras, Gemini 2.5 Flash, Gemini 2.5 Pro, Gemini 3 Pro, Mistral
         - Full cognitive learning capabilities
         - Autonomous workflows (50/month limit)
         """
         return cls(
             tier_name='pro',
-            available_models=['gemini-3-flash', 'qwen', 'mistral', 'gemini-3-pro'],
+            available_models=['cerebras', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-pro', 'mistral'],
             has_cognitive_learning=True,
             has_voice_twin=False,
             has_autonomous_workflows=True,
@@ -70,13 +70,13 @@ class TierFeatures:
         """
         Twin+ tier features.
         
-        Requirements: 3.4
+        Requirements: 3.4, 18.4
         - Pro features plus Voice_Twin functionality
         - Autonomous workflows (200/month limit)
         """
         return cls(
             tier_name='twin_plus',
-            available_models=['gemini-3-flash', 'qwen', 'mistral', 'gemini-3-pro'],
+            available_models=['cerebras', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-pro', 'mistral'],
             has_cognitive_learning=True,
             has_voice_twin=True,
             has_autonomous_workflows=True,
@@ -89,13 +89,14 @@ class TierFeatures:
         """
         Executive tier features.
         
-        Requirements: 3.5
+        Requirements: 3.5, 18.4
         - Twin+ features plus custom model options
         - Unlimited autonomous workflows
+        - Access to all models including Gemini 3.1 Pro
         """
         return cls(
             tier_name='executive',
-            available_models=['gemini-3-flash', 'qwen', 'mistral', 'gemini-3-pro'],
+            available_models=['cerebras', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-pro', 'gemini-3.1-pro', 'mistral'],
             has_cognitive_learning=True,
             has_voice_twin=True,
             has_autonomous_workflows=True,

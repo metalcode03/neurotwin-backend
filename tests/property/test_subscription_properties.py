@@ -53,7 +53,7 @@ feature_strategy = st.sampled_from([
     'autonomous_workflows',
     'custom_models',
     'gemini-3-flash',
-    'qwen',
+    'cerebras',
     'mistral',
     'gemini-3-pro',
 ])
@@ -92,7 +92,7 @@ class TestTierFeatureAccess:
             'autonomous_workflows': False,
             'custom_models': False,
             'gemini-3-flash': True,
-            'qwen': True,
+            'cerebras': True,
             'mistral': True,
             'gemini-3-pro': False,
         },
@@ -102,7 +102,7 @@ class TestTierFeatureAccess:
             'autonomous_workflows': False,
             'custom_models': False,
             'gemini-3-flash': True,
-            'qwen': True,
+            'cerebras': True,
             'mistral': True,
             'gemini-3-pro': True,
         },
@@ -112,7 +112,7 @@ class TestTierFeatureAccess:
             'autonomous_workflows': False,
             'custom_models': False,
             'gemini-3-flash': True,
-            'qwen': True,
+            'cerebras': True,
             'mistral': True,
             'gemini-3-pro': True,
         },
@@ -122,7 +122,7 @@ class TestTierFeatureAccess:
             'autonomous_workflows': True,
             'custom_models': True,
             'gemini-3-flash': True,
-            'qwen': True,
+            'cerebras': True,
             'mistral': True,
             'gemini-3-pro': True,
         },
@@ -181,7 +181,7 @@ class TestTierFeatureAccess:
         
         # Verify model access
         assert ('gemini-3-flash' in tier_features.available_models) == expected['gemini-3-flash']
-        assert ('qwen' in tier_features.available_models) == expected['qwen']
+        assert ('cerebras' in tier_features.available_models) == expected['cerebras']
         assert ('mistral' in tier_features.available_models) == expected['mistral']
         assert ('gemini-3-pro' in tier_features.available_models) == expected['gemini-3-pro']
 
@@ -404,8 +404,8 @@ class TestLapsedSubscriptionDowngrade:
             # But free tier features should still work
             assert service.check_feature_access(str(user.id), 'gemini-3-flash'), \
                 "Lapsed subscription should still have gemini-3-flash"
-            assert service.check_feature_access(str(user.id), 'qwen'), \
-                "Lapsed subscription should still have qwen"
+            assert service.check_feature_access(str(user.id), 'cerebras'), \
+                "Lapsed subscription should still have cerebras"
         finally:
             User.objects.filter(id=user.id).delete()
     

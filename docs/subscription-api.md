@@ -37,7 +37,7 @@ The Subscription Service manages user subscription tiers, feature access control
 
 | Tier | Level | Features |
 |------|-------|----------|
-| **FREE** | 0 | Basic chat, light memory, Gemini-3 Flash, Qwen, Mistral |
+| **FREE** | 0 | Basic chat, light memory, Gemini-3 Flash, Cerebras, Mistral |
 | **PRO** | 1 | + Cognitive learning, Gemini-3 Pro, Autonomous workflows (50/month) |
 | **TWIN+** | 2 | + Voice Twin (voice cloning), Autonomous workflows (200/month) |
 | **EXECUTIVE** | 3 | + Custom models, Unlimited autonomous workflows |
@@ -47,7 +47,7 @@ The Subscription Service manages user subscription tiers, feature access control
 | Feature | FREE | PRO | TWIN+ | EXECUTIVE |
 |---------|:----:|:---:|:-----:|:---------:|
 | gemini-3-flash | ✅ | ✅ | ✅ | ✅ |
-| qwen | ✅ | ✅ | ✅ | ✅ |
+| cerebras | ✅ | ✅ | ✅ | ✅ |
 | mistral | ✅ | ✅ | ✅ | ✅ |
 | gemini-3-pro | ❌ | ✅ | ✅ | ✅ |
 | cognitive_learning | ❌ | ✅ | ✅ | ✅ |
@@ -221,7 +221,7 @@ print(f"Tier: {sub.tier}")  # "free"
 # Check available features
 features = service.get_tier_features(sub.tier)
 print(f"Models: {features.available_models}")  
-# ['gemini-3-flash', 'qwen', 'mistral']
+# ['gemini-3-flash', 'cerebras', 'mistral']
 
 # ═══════════════════════════════════════════════════════════════
 # STEP 2: User tries premium feature → Denied

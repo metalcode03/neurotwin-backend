@@ -20,7 +20,7 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-dev-key-change-in-p
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'True').lower() in ('true', '1', 'yes')
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1,f238-2c0f-f5c0-620-324d-bdcd-6a0f-b212-463a.ngrok-free.app').split(',')
 
 
 # CORS Configuration
@@ -83,6 +83,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'drf_spectacular',  # OpenAPI schema generation
     'django_q',  # Async task queue (Requirements: 14.5)
+    'django_celery_beat',  # Celery Beat scheduler (Requirements: 11.1-11.7)
     # Local apps
     'apps.core',  # Core utilities and management commands
     'apps.authentication',
@@ -94,6 +95,7 @@ INSTALLED_APPS = [
     'apps.safety',
     'apps.automation',
     'apps.voice',
+    'apps.credits',  # Credit-based AI usage tracking
 ]
 
 # Custom User Model
@@ -104,10 +106,13 @@ MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',  # CORS middleware (must be before CommonMiddleware)
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
+    'apps.automation.middleware.security_middleware.CSRFLoggingMiddleware',  # CSRF with logging (Requirements: 33.4, 33.6)
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Security middleware
+    'apps.automation.middleware.security_middleware.InputSanitizationMiddleware',  # Input sanitization (Requirements: 33.3)
+    'apps.automation.middleware.security_middleware.SecurityHeadersMiddleware',  # Security headers (Requirements: 33.1, 33.2)
     # Twin safety middleware
     'apps.automation.middleware.KillSwitchMiddleware',  # Check kill-switch first
     'apps.automation.middleware.TwinPermissionMiddleware',  # Then check permissions
@@ -155,9 +160,12 @@ else:
             'PASSWORD': os.getenv('DB_PASSWORD', 'bigdaddy'),
             'HOST': os.getenv('DB_HOST', 'localhost'),
             'PORT': os.getenv('DB_PORT', '5433'),
-            'ATOMIC_REQUESTS': True,  # Ensures transaction integrity (Requirement 14.3)
+            'ATOMIC_REQUESTS': True,  # Ensures transaction integrity (Requirement 32.5)
+            'CONN_MAX_AGE': 600,  # Connection pooling: 10 minutes (Requirement 31.4)
+            'CONN_HEALTH_CHECKS': True,  # Verify connections before use
             'OPTIONS': {
-                'connect_timeout': 10,
+                'connect_timeout': 10,  # Connection timeout (Requirement 31.4)
+                'options': '-c statement_timeout=30000',  # 30 second statement timeout (Requirement 31.4)
             },
         }
     }
@@ -204,16 +212,25 @@ else:
                 'SOCKET_CONNECT_TIMEOUT': int(os.getenv('REDIS_SOCKET_CONNECT_TIMEOUT', '5')),
                 'SOCKET_TIMEOUT': int(os.getenv('REDIS_SOCKET_TIMEOUT', '5')),
                 'CONNECTION_POOL_KWARGS': {
-                    'max_connections': int(os.getenv('REDIS_CONNECTION_POOL_MAX_CONNECTIONS', '50')),
+                    # Requirement 31.5: Configure max 100 Redis connections
+                    'max_connections': int(os.getenv('REDIS_CONNECTION_POOL_MAX_CONNECTIONS', '100')),
                     'retry_on_timeout': True,
+                    'socket_keepalive': True,
+                    'socket_keepalive_options': {
+                        1: 1,  # TCP_KEEPIDLE
+                        2: 1,  # TCP_KEEPINTVL
+                        3: 3,  # TCP_KEEPCNT
+                    },
+                    'health_check_interval': 30,  # Check connection health every 30 seconds
                 },
                 'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
                 'SERIALIZER': 'django_redis.serializers.json.JSONSerializer',
                 # AWS ElastiCache specific settings
                 'IGNORE_EXCEPTIONS': False,  # Raise exceptions for debugging
+                'RETRY_ON_ERROR': [ConnectionError, TimeoutError],
             },
             'KEY_PREFIX': 'neurotwin',
-            'TIMEOUT': 300,  # Default timeout: 5 minutes
+            'TIMEOUT': 300,  # Default timeout: 5 minutes (Requirement 31.6)
         }
     }
 
@@ -265,6 +282,20 @@ FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
 
 # AI/ML Configuration
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY', '')
+CEREBRAS_API_KEY = os.getenv('CEREBRAS_API_KEY', '')
+MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY', '')
+
+# Meta Webhook Configuration
+# Requirements: 14.1-14.8, 16.8
+META_APP_SECRET = os.getenv('META_APP_SECRET', '')
+META_WEBHOOK_VERIFY_TOKEN = os.getenv('META_WEBHOOK_VERIFY_TOKEN', '')
+
+# Credential Encryption Configuration
+# Requirements: 2.7, 16.1, 16.2, 16.3
+# Use separate encryption keys for different credential types
+OAUTH_ENCRYPTION_KEY = os.getenv('OAUTH_ENCRYPTION_KEY', '')
+META_ENCRYPTION_KEY = os.getenv('META_ENCRYPTION_KEY', '')
+API_KEY_ENCRYPTION_KEY = os.getenv('API_KEY_ENCRYPTION_KEY', '')
 
 # JWT Configuration (legacy - kept for backward compatibility)
 JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', SECRET_KEY)
@@ -308,8 +339,8 @@ REST_FRAMEWORK = {
         'api': '1000/hour',  # General API rate limit (Requirement 18.7)
         'api_burst': '100/min',  # Burst protection
     },
-    # Custom exception handler for consistent error responses (Requirement 13.4, 18.7)
-    'EXCEPTION_HANDLER': 'apps.automation.exception_handlers.custom_exception_handler',
+    # Custom exception handler for consistent error responses (Requirement 13.4, 18.7, 29.1-29.7)
+    'EXCEPTION_HANDLER': 'apps.automation.exception_handler.automation_exception_handler',
     # API versioning (Requirement 13.6)
     'DEFAULT_VERSIONING_CLASS': 'rest_framework.versioning.URLPathVersioning',
     'DEFAULT_VERSION': 'v1',
@@ -366,7 +397,107 @@ SIMPLE_JWT = {
 }
 
 
-# Django-Q2 Configuration
+# Celery Configuration
+# Requirements: 11.1-11.7 - Message queue system with Celery and Redis
+
+# Build Redis URL for Celery broker
+if 'pytest' in sys.modules or 'test' in sys.argv:
+    # Use in-memory broker for testing
+    CELERY_BROKER_URL = 'memory://'
+    CELERY_RESULT_BACKEND = 'cache+memory://'
+elif USE_REDIS:
+    # Use Redis as broker for production/development
+    redis_url = f'redis://{REDIS_HOST}:{REDIS_PORT}'
+    if REDIS_PASSWORD:
+        redis_url = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}'
+    
+    # Add SSL/TLS for AWS ElastiCache
+    if REDIS_USE_SSL:
+        redis_url = redis_url.replace('redis://', 'rediss://')
+    
+    # Use separate Redis DB for Celery (DB 1 for broker, DB 2 for results)
+    CELERY_BROKER_URL = f'{redis_url}/1'
+    CELERY_RESULT_BACKEND = f'{redis_url}/2'
+else:
+    # Fallback to Django ORM (not recommended for production)
+    CELERY_BROKER_URL = 'django://'
+    CELERY_RESULT_BACKEND = 'django-db'
+
+# Celery task serialization and compression
+# Requirements: 11.1-11.7
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TASK_COMPRESSION = 'gzip'
+CELERY_RESULT_COMPRESSION = 'gzip'
+
+# Celery timezone configuration
+CELERY_TIMEZONE = 'UTC'
+CELERY_ENABLE_UTC = True
+
+# Celery task execution settings
+CELERY_TASK_ACKS_LATE = True  # Acknowledge after task completion
+CELERY_TASK_REJECT_ON_WORKER_LOST = True  # Requeue if worker crashes
+CELERY_TASK_TRACK_STARTED = True  # Track when tasks start
+CELERY_TASK_SEND_SENT_EVENT = True  # Send task-sent events
+
+# Celery task time limits (in seconds)
+CELERY_TASK_SOFT_TIME_LIMIT = 300  # 5 minutes soft limit
+CELERY_TASK_TIME_LIMIT = 600  # 10 minutes hard limit
+
+# Celery result backend settings
+CELERY_RESULT_EXPIRES = 3600  # Results expire after 1 hour
+CELERY_RESULT_PERSISTENT = True  # Persist results to backend
+
+# Celery worker settings
+CELERY_WORKER_PREFETCH_MULTIPLIER = 4  # Prefetch 4 tasks per worker
+CELERY_WORKER_MAX_TASKS_PER_CHILD = 1000  # Restart worker after 1000 tasks
+CELERY_WORKER_DISABLE_RATE_LIMITS = False  # Enable rate limiting
+
+# Celery broker connection settings
+CELERY_BROKER_CONNECTION_RETRY = True
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BROKER_CONNECTION_MAX_RETRIES = 10
+
+# Celery task retry settings
+CELERY_TASK_DEFAULT_RETRY_DELAY = 60  # 1 minute default retry delay
+CELERY_TASK_MAX_RETRIES = 3  # Default max retries
+
+# Queue-specific settings
+# Requirements: 11.5 - Configure separate queues
+CELERY_TASK_DEFAULT_QUEUE = 'default'
+CELERY_TASK_DEFAULT_EXCHANGE = 'default'
+CELERY_TASK_DEFAULT_ROUTING_KEY = 'default'
+
+# Celery Beat (scheduled tasks) configuration
+# Requirements: 5.3, 6.5 - Automatic token refresh
+CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+
+# Celery Beat schedule for periodic tasks
+# Requirements: 5.3, 6.5 - Schedule token refresh to run every hour
+from celery.schedules import crontab
+
+CELERY_BEAT_SCHEDULE = {
+    'refresh-expiring-tokens': {
+        'task': 'automation.refresh_expiring_tokens',
+        'schedule': crontab(minute=0),  # Run every hour at minute 0
+        'options': {
+            'queue': 'high_priority',
+            'expires': 3600,  # Task expires after 1 hour if not executed
+        },
+    },
+    'cleanup-old-logs': {
+        'task': 'automation.cleanup_old_logs',
+        'schedule': crontab(hour=2, minute=0),  # Run daily at 2:00 AM
+        'options': {
+            'queue': 'default',
+            'expires': 86400,  # Task expires after 24 hours if not executed
+        },
+    },
+}
+
+
+# Django-Q2 Configuration (legacy - kept for backward compatibility)
 # Requirements: 14.5 - Memory writes shall be asynchronous
 # Use Redis as broker for production, Django ORM for testing
 if 'pytest' in sys.modules or 'test' in sys.argv:
@@ -430,3 +561,186 @@ else:
         'guard_cycle': 5,
         'catch_up': False,
     }
+
+# Logging Configuration
+# Requirements: 19.9, 23.9 - Structured logging for credit operations and AI requests
+
+# Ensure logs directory exists
+LOGS_DIR = BASE_DIR / 'logs'
+LOGS_DIR.mkdir(exist_ok=True)
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'json': {
+            '()': 'pythonjsonlogger.jsonlogger.JsonFormatter',
+            'format': '%(asctime)s %(name)s %(levelname)s %(message)s %(pathname)s %(lineno)d',
+            'datefmt': '%Y-%m-%dT%H:%M:%S',
+        },
+        'verbose': {
+            'format': '{levelname} {asctime} {name} {message}',
+            'style': '{',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'filters': {
+        'require_debug_false': {
+            '()': 'django.utils.log.RequireDebugFalse',
+        },
+        'require_debug_true': {
+            '()': 'django.utils.log.RequireDebugTrue',
+        },
+    },
+    'handlers': {
+        'console': {
+            'level': 'INFO',
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'console_debug': {
+            'level': 'DEBUG',
+            'filters': ['require_debug_true'],
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'file_json': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOGS_DIR / 'neurotwin.json.log'),
+            'maxBytes': 10485760,  # 10MB
+            'backupCount': 5,
+            'formatter': 'json',
+        },
+        'credit_operations': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOGS_DIR / 'credit_operations.json.log'),
+            'maxBytes': 10485760,  # 10MB
+            'backupCount': 10,
+            'formatter': 'json',
+        },
+        'ai_requests': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOGS_DIR / 'ai_requests.json.log'),
+            'maxBytes': 10485760,  # 10MB
+            'backupCount': 10,
+            'formatter': 'json',
+        },
+        'provider_errors': {
+            'level': 'ERROR',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOGS_DIR / 'provider_errors.json.log'),
+            'maxBytes': 10485760,  # 10MB
+            'backupCount': 10,
+            'formatter': 'json',
+        },
+        'automation_events': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOGS_DIR / 'automation_events.json.log'),
+            'maxBytes': 10485760,  # 10MB
+            'backupCount': 30,  # 30-day retention for webhook events (Requirements: 22.6)
+            'formatter': 'json',
+        },
+        'security_events': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOGS_DIR / 'security_events.json.log'),
+            'maxBytes': 10485760,  # 10MB
+            'backupCount': 90,  # 90-day retention for security events and integration logs (Requirements: 30.7, 33.6)
+            'formatter': 'json',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console', 'file_json'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'apps.credits.services': {
+            'handlers': ['console', 'credit_operations'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'apps.credits.ai_service': {
+            'handlers': ['console', 'ai_requests'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'apps.credits.providers': {
+            'handlers': ['console', 'provider_errors'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'apps.credits.routing': {
+            'handlers': ['console', 'ai_requests'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'automation.events': {
+            'handlers': ['console', 'automation_events'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'automation.security': {
+            'handlers': ['console', 'security_events'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+    'root': {
+        'handlers': ['console', 'file_json'],
+        'level': 'INFO',
+    },
+}
+
+
+# Production Settings Validation
+# Requirements: 17.3 - Validate encryption keys are set in production
+if not DEBUG:
+    import warnings
+    
+    # Validate encryption keys
+    required_keys = {
+        'OAUTH_ENCRYPTION_KEY': OAUTH_ENCRYPTION_KEY,
+        'META_ENCRYPTION_KEY': META_ENCRYPTION_KEY,
+        'API_KEY_ENCRYPTION_KEY': API_KEY_ENCRYPTION_KEY,
+    }
+    
+    missing_keys = [key for key, value in required_keys.items() if not value]
+    
+    if missing_keys:
+        raise ValueError(
+            f"Production deployment requires encryption keys to be set. "
+            f"Missing: {', '.join(missing_keys)}. "
+            f"Generate keys with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+        )
+    
+    # Validate Meta webhook configuration if Meta integrations are enabled
+    if not META_APP_SECRET:
+        warnings.warn(
+            "META_APP_SECRET is not set. Meta WhatsApp integrations will not work. "
+            "Set META_APP_SECRET in environment variables.",
+            RuntimeWarning
+        )
+    
+    if not META_WEBHOOK_VERIFY_TOKEN:
+        warnings.warn(
+            "META_WEBHOOK_VERIFY_TOKEN is not set. Meta webhook verification will fail. "
+            "Generate token with: python -c \"import secrets; print(secrets.token_urlsafe(32))\"",
+            RuntimeWarning
+        )
+    
+    # Validate Redis configuration for production
+    if not USE_REDIS:
+        warnings.warn(
+            "Redis is disabled in production. This will severely impact performance. "
+            "Set USE_REDIS=True and configure Redis connection settings.",
+            RuntimeWarning
+        )

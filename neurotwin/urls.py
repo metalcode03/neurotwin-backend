@@ -10,9 +10,14 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
     SpectacularRedocView,
 )
+from apps.credits.metrics_views import MetricsView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    
+    # Prometheus metrics endpoint
+    # Note: In production, protect this endpoint with IP whitelist or authentication
+    path('metrics', MetricsView.as_view(), name='metrics'),
     
     # API Documentation
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),

@@ -79,24 +79,26 @@ class AIModel(Enum):
     """
     Available AI models for Twin.
     
-    Requirements: 2.3
-    - Free tier: Gemini-3 Flash, Qwen, Mistral
-    - Paid tiers: Gemini-3 Pro
+    Requirements: 2.3, 18.2
+    - Free tier: Cerebras, Gemini 2.5 Flash, Mistral
+    - Paid tiers: Gemini 2.5 Pro, Gemini 3 Pro, Gemini 3.1 Pro
     """
-    GEMINI_FLASH = "gemini-3-flash"
-    QWEN = "qwen"
+    CEREBRAS = "cerebras"
+    GEMINI_FLASH = "gemini-2.5-flash"
+    GEMINI_PRO_25 = "gemini-2.5-pro"
+    GEMINI_PRO_3 = "gemini-3-pro"
+    GEMINI_PRO_31 = "gemini-3.1-pro"
     MISTRAL = "mistral"
-    GEMINI_PRO = "gemini-3-pro"
     
     @classmethod
     def free_tier_models(cls) -> List['AIModel']:
         """Return models available on free tier."""
-        return [cls.GEMINI_FLASH, cls.QWEN, cls.MISTRAL]
+        return [cls.CEREBRAS, cls.GEMINI_FLASH, cls.MISTRAL]
     
     @classmethod
     def paid_tier_models(cls) -> List['AIModel']:
         """Return models available on paid tiers."""
-        return [cls.GEMINI_PRO]
+        return [cls.GEMINI_PRO_25, cls.GEMINI_PRO_3, cls.GEMINI_PRO_31]
     
     @classmethod
     def is_valid_model(cls, model_value: str) -> bool:
@@ -106,9 +108,11 @@ class AIModel(Enum):
     def get_model_id(self) -> str:
         """Get the actual model ID for API calls."""
         model_mapping = {
-            AIModel.GEMINI_FLASH: "gemini-2.0-flash",
-            AIModel.GEMINI_PRO: "gemini-2.0-pro",
-            AIModel.QWEN: "qwen-2.5",
+            AIModel.CEREBRAS: "llama-3.3-70b",
+            AIModel.GEMINI_FLASH: "gemini-2.5-flash",
+            AIModel.GEMINI_PRO_25: "gemini-2.5-pro",
+            AIModel.GEMINI_PRO_3: "gemini-3-pro",
+            AIModel.GEMINI_PRO_31: "gemini-3.1-pro",
             AIModel.MISTRAL: "mistral-large",
         }
         return model_mapping.get(self, self.value)

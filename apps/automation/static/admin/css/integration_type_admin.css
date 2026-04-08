@@ -1,0 +1,186 @@
+/**
+ * Custom styles for IntegrationTypeModel admin interface.
+ * 
+ * Requirements: 18.1, 18.2
+ */
+
+/* Auth type badge styling */
+.auth-type-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-weight: bold;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: white;
+}
+
+.auth-type-badge.oauth {
+    background-color: #2196F3;
+}
+
+.auth-type-badge.meta {
+    background-color: #4CAF50;
+}
+
+.auth-type-badge.api-key {
+    background-color: #FF9800;
+}
+
+/* Fieldset styling for different auth types */
+.module h2 {
+    position: relative;
+}
+
+.module h2::before {
+    content: '';
+    display: inline-block;
+    width: 4px;
+    height: 20px;
+    margin-right: 8px;
+    border-radius: 2px;
+}
+
+/* OAuth fieldset indicator */
+.field-oauth_client_id .module h2::before {
+    background-color: #2196F3;
+}
+
+/* Meta fieldset indicator */
+.field-meta_app_id .module h2::before {
+    background-color: #4CAF50;
+}
+
+/* API Key fieldset indicator */
+.field-api_key_endpoint .module h2::before {
+    background-color: #FF9800;
+}
+
+/* Required field indicator */
+.required-indicator {
+    color: #dc3545;
+    font-weight: bold;
+    margin-left: 2px;
+}
+
+/* Password field styling */
+input[type="password"] {
+    font-family: 'Courier New', monospace;
+    letter-spacing: 2px;
+}
+
+/* Help text for encrypted fields */
+.field-oauth_client_secret .help,
+.field-meta_app_secret .help {
+    color: #28a745;
+    font-weight: 500;
+}
+
+.field-oauth_client_secret .help::before,
+.field-meta_app_secret .help::before {
+    content: '🔒 ';
+}
+
+/* HTTPS validation warning */
+.https-warning {
+    color: #dc3545;
+    font-weight: bold;
+    margin-top: 5px;
+}
+
+/* Test authentication button styling */
+.test-auth-button {
+    display: inline-block;
+    padding: 8px 16px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+    text-decoration: none;
+    transition: background-color 0.2s;
+}
+
+.test-auth-button:hover {
+    background-color: #0056b3;
+    color: white;
+    text-decoration: none;
+}
+
+.test-auth-button:disabled {
+    background-color: #6c757d;
+    cursor: not-allowed;
+}
+
+/* Auth config JSON display */
+.auth-config-json {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 12px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    max-height: 400px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Installation count badge */
+.installation-count {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.installation-count.active {
+    background-color: #d4edda;
+    color: #155724;
+}
+
+.installation-count.inactive {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+/* Form section transitions */
+.module {
+    transition: opacity 0.3s ease-in-out;
+}
+
+.module.hidden {
+    opacity: 0;
+    height: 0;
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .auth-type-badge {
+        font-size: 10px;
+        padding: 3px 8px;
+    }
+    
+    .auth-config-json {
+        font-size: 10px;
+        padding: 8px;
+    }
+}
+
+/* Dark mode support (if Django admin uses dark theme) */
+@media (prefers-color-scheme: dark) {
+    .auth-config-json {
+        background: #2b2b2b;
+        border-color: #444;
+        color: #e0e0e0;
+    }
+    
+    .module h2::before {
+        opacity: 0.8;
+    }
+}

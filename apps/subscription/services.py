@@ -263,7 +263,7 @@ class SubscriptionService:
             return model_name in tier_features.available_models
         
         # Check for specific model names
-        if feature in ['gemini-3-flash', 'qwen', 'mistral', 'gemini-3-pro']:
+        if feature in ['gemini-3-flash', 'cerebras', 'mistral', 'gemini-3-pro']:
             return feature in tier_features.available_models
         
         # Unknown features default to False
@@ -339,3 +339,36 @@ class SubscriptionService:
         subscription = self.check_and_handle_lapsed(user_id)
         tier_features = self.get_tier_features(subscription.tier)
         return model_name in tier_features.available_models
+    
+    def can_access_brain_mode(self, user_id: str, brain_mode: str) -> bool:
+        """
+        Check if user can access a specific Brain mode.
+        
+        Brain mode access is determined by subscription tier:
+        - brain: Available to all tiers (FREE, PRO, TWIN_PLUS, EXECUTIVE)
+        - brain_pro: Requires PRO tier or higher
+        - brain_gen: Requires EXECUTIVE tier only
+        
+        Requirements: 5.6, 5.7, 5.10
+        
+        Args:
+            user_id: The user's ID
+            brain_mode: The brain mode to check ('brain', 'brain_pro', 'brain_gen')
+            
+        Returns:
+            True if user can access the brain mode, False otherwise
+        """
+        # Import here to avoid circular dependency
+        from apps.credits.constants import BRAIN_MODE_TIER_REQUIREMENTS
+        
+        # Get user's subscription and handle lapsed subscriptions
+        subscription = self.check_and_handle_lapsed(user_id)
+        
+        # Get current tier (uppercase to match constants)
+        current_tier = subscription.tier.upper()
+        
+        # Get allowed tiers for this brain mode
+        allowed_tiers = BRAIN_MODE_TIER_REQUIREMENTS.get(brain_mode, [])
+        
+        # Check if current tier is in allowed tiers
+        return current_tier in allowed_tiers

@@ -232,7 +232,7 @@ GET /api/v1/subscription
 
 | Tier | Price | Features |
 |------|-------|----------|
-| **FREE** | $0 | Basic chat, Gemini Flash/Qwen/Mistral models |
+| **FREE** | $0 | Basic chat, Gemini Flash/Cerebras/Mistral models |
 | **PRO** | $19/mo | + Cognitive learning, Gemini Pro |
 | **TWIN+** | $49/mo | + Voice Twin (voice cloning) |
 | **EXECUTIVE** | $99/mo | + Autonomous workflows, Custom models |
@@ -257,7 +257,7 @@ POST /api/v1/subscription/upgrade
 ### FREE Tier
 - ✅ Basic chat with Twin
 - ✅ Light memory (recent conversations)
-- ✅ Gemini Flash, Qwen, Mistral models
+- ✅ Gemini Flash, Cerebras, Mistral models
 - ❌ Cognitive learning
 - ❌ Voice Twin
 - ❌ Autonomous workflows

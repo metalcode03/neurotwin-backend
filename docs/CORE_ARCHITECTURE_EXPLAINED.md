@@ -71,7 +71,7 @@ if mode.requires_confirmation():
 Enum of available AI models:
 - `GEMINI_FLASH`: Free tier, fast responses
 - `GEMINI_PRO`: Paid tier, better quality
-- `QWEN`, `MISTRAL`: Alternative models
+- `CEREBRAS`, `MISTRAL`: Alternative models
 
 **Usage Example:**
 ```python

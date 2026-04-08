@@ -20,6 +20,8 @@ from apps.automation.serializers import (
     InstallationResponseSerializer,
 )
 from apps.automation.services import InstallationService, AppMarketplaceService
+from apps.automation.exceptions import MetaInstallationRateLimitExceeded
+from apps.automation.services.installation import InstallationRateLimitExceeded
 from apps.automation.throttling import InstallationRateThrottle, APIRateThrottle
 
 logger = logging.getLogger(__name__)
@@ -63,15 +65,29 @@ class InstallationViewSet(viewsets.ViewSet):
                 "integration_type_id": "uuid"
             }
         
-        Response:
+        Response (OAuth/Meta):
             {
                 "session_id": "uuid",
-                "oauth_url": "https://...",
+                "authorization_url": "https://...",
+                "requires_redirect": true,
+                "requires_api_key": false,
+                "auth_type": "oauth",
+                "status": "oauth_setup",
+                "message": "Installation started"
+            }
+        
+        Response (API Key):
+            {
+                "session_id": "uuid",
+                "authorization_url": null,
+                "requires_redirect": false,
+                "requires_api_key": true,
+                "auth_type": "api_key",
                 "status": "downloading",
                 "message": "Installation started"
             }
         
-        Requirements: 10.4, 18.7
+        Requirements: 10.4, 12.1, 12.2, 12.3, 18.7
         """
         serializer = InstallationStartSerializer(
             data=request.data,
@@ -87,34 +103,67 @@ class InstallationViewSet(viewsets.ViewSet):
         integration_type_id = serializer.validated_data['integration_type_id']
         
         try:
-            # Start installation (Phase 1)
-            session = InstallationService.start_installation(
+            # Start installation using updated service method
+            result = InstallationService.start_installation(
                 user=request.user,
                 integration_type_id=str(integration_type_id)
             )
             
-            # Get OAuth URL (Phase 2)
-            oauth_url = InstallationService.get_oauth_authorization_url(
-                session_id=str(session.id)
-            )
-            
-            # Prepare response
-            response_serializer = InstallationResponseSerializer(data={
-                'session_id': str(session.id),
-                'oauth_url': oauth_url,
-                'status': session.status,
-                'message': 'Installation started. Please complete OAuth authorization.'
-            })
-            response_serializer.is_valid(raise_exception=True)
+            # Build response based on auth_type
+            response_data = {
+                'session_id': result['session_id'],
+                'authorization_url': result.get('authorization_url'),
+                'requires_redirect': result['requires_redirect'],
+                'requires_api_key': result['requires_api_key'],
+                'auth_type': result['auth_type'],
+                'status': result.get('status', 'downloading'),
+                'message': self._get_install_message(result['auth_type'], result['requires_redirect'])
+            }
             
             logger.info(
-                f'Installation started: session={session.id}, '
-                f'user={request.user.id}, integration_type={integration_type_id}'
+                f'Installation started: session={result["session_id"]}, '
+                f'user={request.user.id}, integration_type={integration_type_id}, '
+                f'auth_type={result["auth_type"]}'
             )
             
             return Response(
-                response_serializer.data,
+                response_data,
                 status=status.HTTP_201_CREATED
+            )
+        
+        except MetaInstallationRateLimitExceeded as e:
+            # Get retry_after from exception details
+            wait_seconds = e.details.get('retry_after', 60)
+            
+            logger.warning(
+                f'Meta installation rate limit exceeded: user={request.user.id}, '
+                f'integration_type={integration_type_id}, wait_seconds={wait_seconds}'
+            )
+            
+            # Return HTTP 429 with Retry-After header (Requirements 14.3-14.4)
+            response = Response(
+                {
+                    'error': 'Rate limit exceeded',
+                    'detail': e.message,
+                    'retry_after': wait_seconds
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+            response['Retry-After'] = str(wait_seconds)
+            return response
+        
+        except InstallationRateLimitExceeded as e:
+            logger.warning(
+                f'Installation rate limit exceeded: user={request.user.id}, '
+                f'integration_type={integration_type_id}'
+            )
+            
+            return Response(
+                {
+                    'error': 'Rate limit exceeded',
+                    'detail': str(e)
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS
             )
             
         except Exception as e:
@@ -130,6 +179,15 @@ class InstallationViewSet(viewsets.ViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
+    
+    def _get_install_message(self, auth_type: str, requires_redirect: bool) -> str:
+        """Get appropriate installation message based on auth type."""
+        if auth_type == 'api_key':
+            return 'Installation started. Please provide your API key.'
+        elif requires_redirect:
+            return 'Installation started. Please complete authorization.'
+        else:
+            return 'Installation started.'
     
     @action(detail=True, methods=['get'], url_path='progress')
     def progress(self, request, pk=None):
