@@ -5,7 +5,7 @@ fileMatchPattern: ['**/services.py', '**/llm/**', '**/ai/**', '**/adapters/**']
 
 # LLM Integration Rules
 
-Rules for implementing LLM service integrations (Gemini, Qwen, Mistral) in NeuroTwin.
+Rules for implementing LLM service integrations (Gemini, Cerebras, Mistral) in NeuroTwin.
 
 ## Pre-Implementation Research
 
@@ -20,7 +20,7 @@ Before adding or modifying any LLM integration:
 | Provider | Package | Env Variable |
 |----------|---------|--------------|
 | Google Gemini | `google-genai` | `GOOGLE_GENAI_API_KEY` |
-| Qwen | TBD | `QWEN_API_KEY` |
+| Cerebras | TBD | `CEREBRAS_API_KEY` |
 | Mistral | TBD | `MISTRAL_API_KEY` |
 
 Install via: `uv add <package-name>`

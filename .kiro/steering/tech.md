@@ -10,7 +10,7 @@
 
 ## AI/ML
 - Google GenAI SDK (`google-genai`)
-- Models: Gemini 3, Qwen, Mistral
+- Models: Gemini 3, Cerebras, Mistral
 
 ## Database (planned)
 - PostgreSQL
