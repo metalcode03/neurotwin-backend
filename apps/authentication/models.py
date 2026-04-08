@@ -14,6 +14,9 @@ from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.utils import timezone
 
+# Import UserSettings from separate module
+from .user_settings_models import UserSettings, BrainMode
+
 
 class UserManager(BaseUserManager):
     """Custom user manager for email-based authentication."""
@@ -78,6 +81,55 @@ class User(AbstractBaseUser, PermissionsMixin):
         db_index=True
     )
     
+    # Profile fields
+    username = models.CharField(
+        max_length=150,
+        blank=True,
+        null=False,
+        default='',
+        help_text='Unique username for the user'
+    )
+    display_name = models.CharField(
+        max_length=150,
+        blank=True,
+        null=False,
+        default='',
+        help_text='Display name for the user'
+    )
+    bio = models.TextField(
+        blank=True,
+        null=False,
+        default='',
+        help_text='User biography or description'
+    )
+    profile_image = models.ImageField(
+        upload_to='profile_images/',
+        blank=True,
+        null=False,
+        default='',
+        help_text='User profile image'
+    )
+    
+    # Phone number fields
+    phone_number = models.CharField(
+        max_length=20,
+        blank=True,
+        null=False,
+        default='',
+        help_text='Primary phone number'
+    )
+    whatsapp_number = models.CharField(
+        max_length=20,
+        blank=True,
+        null=False,
+        default='',
+        help_text='WhatsApp-specific phone number (optional)'
+    )
+    use_default_for_whatsapp = models.BooleanField(
+        default=True,
+        help_text='Use primary phone number for WhatsApp if true'
+    )
+    
     # OAuth fields
     oauth_provider = models.CharField(
         max_length=50, 
@@ -120,6 +172,17 @@ class User(AbstractBaseUser, PermissionsMixin):
     
     def __str__(self) -> str:
         return self.email
+    
+    @property
+    def effective_whatsapp_number(self) -> str:
+        """
+        Get the effective WhatsApp number based on user preference.
+        Returns whatsapp_number if use_default_for_whatsapp is False,
+        otherwise returns phone_number.
+        """
+        if self.use_default_for_whatsapp:
+            return self.phone_number
+        return self.whatsapp_number
 
 
 class VerificationToken(models.Model):
