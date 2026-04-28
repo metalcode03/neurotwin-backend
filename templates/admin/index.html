@@ -1,0 +1,90 @@
+{% extends 'admin/base.html' %}
+
+{% load i18n unfold %}
+
+{% block title %}
+    {% if subtitle %}
+        {{ subtitle }} |
+    {% endif %}
+    {{ title }} | {{ site_title|default:_('Django site admin') }}
+{% endblock %}
+
+{% block branding %}
+    {% include "unfold/helpers/site_branding.html" %}
+{% endblock %}
+
+{% block content %}
+    {% component "unfold/components/container.html" %}
+        {# ── KPI Cards Row ── #}
+        {% component "unfold/components/flex.html" with class="gap-4 mb-8" %}
+            {% for card in kpi_cards %}
+                {% component "unfold/components/card.html" with class="flex-1" icon=card.icon %}
+                    {% component "unfold/components/text.html" with class="text-sm font-normal text-gray-500 dark:text-gray-400" %}
+                        {{ card.title }}
+                    {% endcomponent %}
+                    {% component "unfold/components/title.html" with class="text-2xl" %}
+                        {{ card.metric }}
+                    {% endcomponent %}
+                {% endcomponent %}
+            {% endfor %}
+        {% endcomponent %}
+
+        {# ── Chart Row 1: AI Requests (line) + Credit Consumption (bar) ── #}
+        {% component "unfold/components/flex.html" with class="gap-4 mb-8" %}
+            {# AI Request Volume – Line Chart #}
+            {% if ai_requests_chart %}
+                {% component "unfold/components/card.html" with class="flex-1" title="AI Request Volume (30 days)" %}
+                    {% component "unfold/components/chart/line.html" with data=ai_requests_chart height=320 %}{% endcomponent %}
+                {% endcomponent %}
+            {% else %}
+                {% component "unfold/components/card.html" with class="flex-1" title="AI Request Volume (30 days)" %}
+                    {% component "unfold/components/text.html" with class="text-gray-400 dark:text-gray-500 italic py-8 text-center" %}
+                        {% trans "Data temporarily unavailable" %}
+                    {% endcomponent %}
+                {% endcomponent %}
+            {% endif %}
+
+            {# Credit Consumption by Brain Mode – Bar Chart #}
+            {% if credit_consumption_chart %}
+                {% component "unfold/components/card.html" with class="flex-1" title="Credit Consumption by Brain Mode" %}
+                    {% component "unfold/components/chart/bar.html" with data=credit_consumption_chart height=320 %}{% endcomponent %}
+                {% endcomponent %}
+            {% else %}
+                {% component "unfold/components/card.html" with class="flex-1" title="Credit Consumption by Brain Mode" %}
+                    {% component "unfold/components/text.html" with class="text-gray-400 dark:text-gray-500 italic py-8 text-center" %}
+                        {% trans "Data temporarily unavailable" %}
+                    {% endcomponent %}
+                {% endcomponent %}
+            {% endif %}
+        {% endcomponent %}
+
+        {# ── Chart Row 2: Subscription Tiers (bar) + User Registrations (line) ── #}
+        {% component "unfold/components/flex.html" with class="gap-4 mb-8" %}
+            {# Subscription Tier Distribution – Bar Chart #}
+            {% if subscription_tier_chart %}
+                {% component "unfold/components/card.html" with class="flex-1" title="Subscription Tier Distribution" %}
+                    {% component "unfold/components/chart/bar.html" with data=subscription_tier_chart height=320 %}{% endcomponent %}
+                {% endcomponent %}
+            {% else %}
+                {% component "unfold/components/card.html" with class="flex-1" title="Subscription Tier Distribution" %}
+                    {% component "unfold/components/text.html" with class="text-gray-400 dark:text-gray-500 italic py-8 text-center" %}
+                        {% trans "Data temporarily unavailable" %}
+                    {% endcomponent %}
+                {% endcomponent %}
+            {% endif %}
+
+            {# User Registrations – Line Chart #}
+            {% if user_registrations_chart %}
+                {% component "unfold/components/card.html" with class="flex-1" title="New User Registrations (30 days)" %}
+                    {% component "unfold/components/chart/line.html" with data=user_registrations_chart height=320 %}{% endcomponent %}
+                {% endcomponent %}
+            {% else %}
+                {% component "unfold/components/card.html" with class="flex-1" title="New User Registrations (30 days)" %}
+                    {% component "unfold/components/text.html" with class="text-gray-400 dark:text-gray-500 italic py-8 text-center" %}
+                        {% trans "Data temporarily unavailable" %}
+                    {% endcomponent %}
+                {% endcomponent %}
+            {% endif %}
+        {% endcomponent %}
+    {% endcomponent %}
+{% endblock %}
