@@ -3,11 +3,13 @@ Django admin configuration for the Learning app.
 """
 
 from django.contrib import admin
+from unfold.admin import ModelAdmin as UnfoldModelAdmin
+
 from .models import LearningEvent
 
 
 @admin.register(LearningEvent)
-class LearningEventAdmin(admin.ModelAdmin):
+class LearningEventAdmin(UnfoldModelAdmin):
     """Admin configuration for LearningEvent model."""
     
     list_display = [

@@ -3,11 +3,13 @@ Admin configuration for CSM app.
 """
 
 from django.contrib import admin
+from unfold.admin import ModelAdmin as UnfoldModelAdmin
+
 from .models import CSMProfile, CSMChangeLog
 
 
 @admin.register(CSMProfile)
-class CSMProfileAdmin(admin.ModelAdmin):
+class CSMProfileAdmin(UnfoldModelAdmin):
     """Admin for CSM profiles."""
     
     list_display = ['id', 'user', 'version', 'is_current', 'created_at', 'updated_at']
@@ -18,7 +20,7 @@ class CSMProfileAdmin(admin.ModelAdmin):
 
 
 @admin.register(CSMChangeLog)
-class CSMChangeLogAdmin(admin.ModelAdmin):
+class CSMChangeLogAdmin(UnfoldModelAdmin):
     """Admin for CSM change logs."""
     
     list_display = ['id', 'profile', 'from_version', 'to_version', 'change_type', 'changed_at']

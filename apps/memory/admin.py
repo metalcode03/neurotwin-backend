@@ -3,11 +3,13 @@ Admin configuration for Memory app.
 """
 
 from django.contrib import admin
+from unfold.admin import ModelAdmin as UnfoldModelAdmin
+
 from .models import MemoryRecord, MemoryAccessLog
 
 
 @admin.register(MemoryRecord)
-class MemoryRecordAdmin(admin.ModelAdmin):
+class MemoryRecordAdmin(UnfoldModelAdmin):
     """Admin configuration for MemoryRecord model."""
     
     list_display = [
@@ -39,7 +41,7 @@ class MemoryRecordAdmin(admin.ModelAdmin):
 
 
 @admin.register(MemoryAccessLog)
-class MemoryAccessLogAdmin(admin.ModelAdmin):
+class MemoryAccessLogAdmin(UnfoldModelAdmin):
     """Admin configuration for MemoryAccessLog model."""
     
     list_display = ['id', 'memory', 'access_type', 'accessed_at']

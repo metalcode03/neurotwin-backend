@@ -3,11 +3,13 @@ Admin configuration for the safety app.
 """
 
 from django.contrib import admin
+from unfold.admin import ModelAdmin as UnfoldModelAdmin
+
 from .models import PermissionScope, PermissionHistory
 
 
 @admin.register(PermissionScope)
-class PermissionScopeAdmin(admin.ModelAdmin):
+class PermissionScopeAdmin(UnfoldModelAdmin):
     """Admin configuration for PermissionScope model."""
     
     list_display = [
@@ -30,7 +32,7 @@ class PermissionScopeAdmin(admin.ModelAdmin):
 
 
 @admin.register(PermissionHistory)
-class PermissionHistoryAdmin(admin.ModelAdmin):
+class PermissionHistoryAdmin(UnfoldModelAdmin):
     """Admin configuration for PermissionHistory model."""
     
     list_display = [
