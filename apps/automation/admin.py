@@ -10,6 +10,8 @@ from django.utils.html import format_html
 from django.core.exceptions import ValidationError
 from django.urls import reverse
 from django.utils.safestring import mark_safe
+from unfold.admin import ModelAdmin as UnfoldModelAdmin
+from unfold.decorators import display
 
 from .models import (
     AutomationTemplate,
@@ -340,7 +342,7 @@ class IntegrationTypeAdminForm(forms.ModelForm):
 
 
 @admin.register(IntegrationTypeModel)
-class IntegrationTypeAdmin(admin.ModelAdmin):
+class IntegrationTypeAdmin(UnfoldModelAdmin):
     """
     Admin configuration for IntegrationType model with multi-auth support.
     
@@ -515,32 +517,22 @@ class IntegrationTypeAdmin(admin.ModelAdmin):
         
         return fieldsets
     
+    @display(
+        description="Auth Type",
+        ordering="auth_type",
+        label={
+            "oauth": "info",
+            "meta": "success",
+            "api_key": "warning",
+        },
+    )
     def auth_type_display(self, obj):
         """
         Display authentication type with colored badge.
         
         Requirements: 18.1
         """
-        if not obj:
-            return '-'
-        
-        colors = {
-            AuthType.OAUTH: '#2196F3',  # Blue
-            AuthType.META: '#4CAF50',   # Green
-            AuthType.API_KEY: '#FF9800', # Orange
-        }
-        
-        color = colors.get(obj.auth_type, '#757575')
-        label = obj.get_auth_type_display()
-        
-        return format_html(
-            '<span style="background-color: {}; color: white; padding: 3px 8px; '
-            'border-radius: 3px; font-weight: bold; font-size: 11px;">{}</span>',
-            color,
-            label
-        )
-    auth_type_display.short_description = 'Auth Type'
-    auth_type_display.admin_order_field = 'auth_type'
+        return obj.auth_type
     
     def installation_count(self, obj):
         """Display number of user installations."""
@@ -680,7 +672,7 @@ class IntegrationTypeAdmin(admin.ModelAdmin):
 
 
 @admin.register(AutomationTemplate)
-class AutomationTemplateAdmin(admin.ModelAdmin):
+class AutomationTemplateAdmin(UnfoldModelAdmin):
     """
     Admin configuration for AutomationTemplate model.
     
@@ -765,7 +757,7 @@ class AutomationTemplateAdmin(admin.ModelAdmin):
 
 
 @admin.register(Integration)
-class IntegrationAdmin(admin.ModelAdmin):
+class IntegrationAdmin(UnfoldModelAdmin):
     """
     Admin configuration for Integration model.
     
@@ -876,46 +868,30 @@ class IntegrationAdmin(admin.ModelAdmin):
     integration_type_name.short_description = 'Integration Type'
     integration_type_name.admin_order_field = 'integration_type__name'
     
+    @display(
+        description="Status",
+        ordering="is_active",
+        label={
+            True: "success",
+            False: "danger",
+        },
+    )
     def status_display(self, obj):
         """Display integration active status with colored badge."""
-        if not obj:
-            return '-'
-        
-        if obj.is_active:
-            return format_html(
-                '<span style="background-color: #4CAF50; color: white; padding: 3px 8px; '
-                'border-radius: 3px; font-weight: bold; font-size: 11px;">Active</span>'
-            )
-        else:
-            return format_html(
-                '<span style="background-color: #757575; color: white; padding: 3px 8px; '
-                'border-radius: 3px; font-weight: bold; font-size: 11px;">Inactive</span>'
-            )
-    status_display.short_description = 'Status'
-    status_display.admin_order_field = 'is_active'
+        return obj.is_active
     
+    @display(
+        description="Health Status",
+        ordering="health_status",
+        label={
+            "healthy": "success",
+            "degraded": "warning",
+            "disconnected": "danger",
+        },
+    )
     def health_status_display(self, obj):
         """Display health status with colored badge."""
-        if not obj:
-            return '-'
-        
-        colors = {
-            'healthy': '#4CAF50',    # Green
-            'degraded': '#FF9800',   # Orange
-            'disconnected': '#F44336', # Red
-        }
-        
-        color = colors.get(obj.health_status, '#757575')
-        label = obj.health_status.title()
-        
-        return format_html(
-            '<span style="background-color: {}; color: white; padding: 3px 8px; '
-            'border-radius: 3px; font-weight: bold; font-size: 11px;">{}</span>',
-            color,
-            label
-        )
-    health_status_display.short_description = 'Health Status'
-    health_status_display.admin_order_field = 'health_status'
+        return obj.health_status
     
     def token_status(self, obj):
         """Display token expiration status."""
@@ -1072,7 +1048,7 @@ class IntegrationAdmin(admin.ModelAdmin):
 
 
 @admin.register(WebhookEvent)
-class WebhookEventAdmin(admin.ModelAdmin):
+class WebhookEventAdmin(UnfoldModelAdmin):
     """
     Admin configuration for WebhookEvent model.
     
@@ -1184,29 +1160,19 @@ class WebhookEventAdmin(admin.ModelAdmin):
     integration_user.short_description = 'User'
     integration_user.admin_order_field = 'integration__user__email'
     
+    @display(
+        description="Status",
+        ordering="status",
+        label={
+            "pending": "info",
+            "processing": "warning",
+            "processed": "success",
+            "failed": "danger",
+        },
+    )
     def status_display(self, obj):
         """Display webhook status with colored badge."""
-        if not obj:
-            return '-'
-        
-        colors = {
-            'pending': '#2196F3',     # Blue
-            'processing': '#FF9800',  # Orange
-            'processed': '#4CAF50',   # Green
-            'failed': '#F44336',      # Red
-        }
-        
-        color = colors.get(obj.status, '#757575')
-        label = obj.get_status_display()
-        
-        return format_html(
-            '<span style="background-color: {}; color: white; padding: 3px 8px; '
-            'border-radius: 3px; font-weight: bold; font-size: 11px;">{}</span>',
-            color,
-            label
-        )
-    status_display.short_description = 'Status'
-    status_display.admin_order_field = 'status'
+        return obj.status
     
     def processing_time_display(self, obj):
         """Display webhook processing time."""
@@ -1334,7 +1300,7 @@ class WebhookEventAdmin(admin.ModelAdmin):
 
 
 @admin.register(Message)
-class MessageAdmin(admin.ModelAdmin):
+class MessageAdmin(UnfoldModelAdmin):
     """
     Admin configuration for Message model.
     
@@ -1467,53 +1433,33 @@ class MessageAdmin(admin.ModelAdmin):
         return format_html('<br>'.join(info_parts))
     conversation_context.short_description = 'Conversation Context'
     
+    @display(
+        description="Direction",
+        ordering="direction",
+        label={
+            "inbound": "info",
+            "outbound": "success",
+        },
+    )
     def direction_display(self, obj):
-        """Display message direction with icon."""
-        if not obj:
-            return '-'
-        
-        if obj.direction == 'inbound':
-            icon = '⬇'
-            color = '#2196F3'
-            label = 'Inbound'
-        else:
-            icon = '⬆'
-            color = '#4CAF50'
-            label = 'Outbound'
-        
-        return format_html(
-            '<span style="color: {}; font-weight: bold;">{} {}</span>',
-            color,
-            icon,
-            label
-        )
-    direction_display.short_description = 'Direction'
-    direction_display.admin_order_field = 'direction'
+        """Display message direction with badge."""
+        return obj.direction
     
+    @display(
+        description="Status",
+        ordering="status",
+        label={
+            "pending": "info",
+            "sent": "success",
+            "delivered": "success",
+            "read": "success",
+            "failed": "danger",
+            "received": "info",
+        },
+    )
     def status_display(self, obj):
         """Display message status with colored badge."""
-        if not obj:
-            return '-'
-        
-        colors = {
-            'pending': '#2196F3',    # Blue
-            'sent': '#4CAF50',       # Green
-            'delivered': '#8BC34A',  # Light Green
-            'read': '#CDDC39',       # Lime
-            'failed': '#F44336',     # Red
-        }
-        
-        color = colors.get(obj.status, '#757575')
-        label = obj.get_status_display()
-        
-        return format_html(
-            '<span style="background-color: {}; color: white; padding: 3px 8px; '
-            'border-radius: 3px; font-weight: bold; font-size: 11px;">{}</span>',
-            color,
-            label
-        )
-    status_display.short_description = 'Status'
-    status_display.admin_order_field = 'status'
+        return obj.status
     
     def content_preview(self, obj):
         """Display message content preview."""
@@ -1636,7 +1582,7 @@ class MessageAdmin(admin.ModelAdmin):
 
 
 @admin.register(Conversation)
-class ConversationAdmin(admin.ModelAdmin):
+class ConversationAdmin(UnfoldModelAdmin):
     """
     Admin configuration for Conversation model.
     
@@ -1731,28 +1677,19 @@ class ConversationAdmin(admin.ModelAdmin):
     integration_info.short_description = 'Integration'
     integration_info.admin_order_field = 'integration__integration_type__name'
     
+    @display(
+        description="Status",
+        ordering="status",
+        label={
+            "active": "success",
+            "archived": "warning",
+            "closed": "info",
+            "blocked": "danger",
+        },
+    )
     def status_display(self, obj):
         """Display conversation status with colored badge."""
-        if not obj:
-            return '-'
-        
-        colors = {
-            'active': '#4CAF50',     # Green
-            'archived': '#757575',   # Gray
-            'blocked': '#F44336',    # Red
-        }
-        
-        color = colors.get(obj.status, '#757575')
-        label = obj.get_status_display()
-        
-        return format_html(
-            '<span style="background-color: {}; color: white; padding: 3px 8px; '
-            'border-radius: 3px; font-weight: bold; font-size: 11px;">{}</span>',
-            color,
-            label
-        )
-    status_display.short_description = 'Status'
-    status_display.admin_order_field = 'status'
+        return obj.status
     
     def message_count(self, obj):
         """Display total message count."""
