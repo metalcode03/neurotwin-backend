@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 40" height="32">
+  <g fill="#e2e8f0">
+    <path d="M12 8c-5.5 3-8 8-8 14s2.5 11 8 14c5.5-3 8-8 8-14s-2.5-11-8-14zm0 4c3.3 2 5 5 5 10s-1.7 8-5 10c-3.3-2-5-5-5-10s1.7-8 5-10z" opacity=".85"/>
+    <circle cx="12" cy="18" r="2.5"/>
+    <circle cx="9" cy="24" r="1.5" opacity=".6"/>
+    <circle cx="15" cy="24" r="1.5" opacity=".6"/>
+    <circle cx="12" cy="13" r="1.5" opacity=".6"/>
+  </g>
+  <text x="28" y="27" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="700" fill="#e2e8f0">NeuroTwin</text>
+</svg>
