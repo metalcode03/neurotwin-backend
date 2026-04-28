@@ -1,0 +1,37 @@
+# Version control
+.git/
+
+# Virtual environment
+.venv/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Frontend (not needed in backend image)
+neuro-frontend/
+node_modules/
+
+# Environment secrets
+.env
+
+# Logs
+logs/
+*.log
+
+# Testing artifacts
+.hypothesis/
+tests/
+
+# Documentation
+docs/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Kiro specs
+.kiro/
