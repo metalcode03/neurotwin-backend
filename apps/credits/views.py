@@ -13,6 +13,12 @@ from rest_framework.pagination import PageNumberPagination
 
 from apps.credits.services import CreditManager
 from apps.credits.throttling import CreditRateThrottle
+import uuid
+from django.conf import settings
+from django.utils import timezone
+from apps.subscription.models import Subscription, SubscriptionTier, SubscriptionHistory
+from apps.credits.models import UserCredits, CreditTopUp
+from apps.credits.payment_service import FlutterwaveService
 from apps.credits.serializers import (
     CreditBalanceSerializer,
     CreditEstimateRequestSerializer,
@@ -22,6 +28,9 @@ from apps.credits.serializers import (
     CreditUsageLogSerializer,
     CreditUsageSummaryRequestSerializer,
     CreditUsageSummarySerializer,
+    PaymentInitiateSerializer,
+    PaymentVerifySerializer,
+    PaymentResponseSerializer,
 )
 
 
@@ -307,3 +316,194 @@ class CreditViewSet(viewsets.ViewSet):
                 {'error': 'Internal server error'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    @action(detail=False, methods=['post'], url_path='payment/initiate')
+    def initiate_payment(self, request):
+        """Initiate payment for subscription tier upgrade."""
+        serializer = PaymentInitiateSerializer(data=request.data)
+        if not serializer.is_valid():
+            logger.error(f"Payment initiation validation failed: {serializer.errors}")
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+        tier = serializer.validated_data.get('tier')
+        if not tier:
+            return Response({'error': 'tier is required for upgrade'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        tier_info = settings.SUBSCRIPTION_PRICING.get(tier)
+        if not tier_info:
+            return Response({'error': 'Invalid tier'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not settings.FLUTTERWAVE_PUBLIC_KEY:
+            logger.error("FLUTTERWAVE_PUBLIC_KEY not configured")
+            return Response({'error': 'Payment gateway not configured'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+        tx_ref = f"tx-upg-{uuid.uuid4().hex}"
+        amount = tier_info['price']
+        
+        response_data = {
+            'tx_ref': tx_ref,
+            'amount': amount,
+            'currency': 'USD',
+            'public_key': settings.FLUTTERWAVE_PUBLIC_KEY,
+            'customer_email': request.user.email,
+            'customer_name': request.user.display_name or request.user.email,
+        }
+        
+        logger.info(f"Payment initiated for user {request.user.id}, tier {tier}, tx_ref {tx_ref}")
+        return Response(response_data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='payment/verify-upgrade')
+    def verify_upgrade_payment(self, request):
+        """Verify payment and apply tier upgrade."""
+        serializer = PaymentVerifySerializer(data=request.data)
+        if not serializer.is_valid():
+            logger.error(f"Payment verification validation failed: {serializer.errors}")
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+        transaction_id = serializer.validated_data['transaction_id']
+        tier = serializer.validated_data.get('tier')
+        
+        if not tier:
+            return Response({'error': 'tier is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            logger.info(f"Verifying payment for user {request.user.id}, transaction {transaction_id}")
+            payment_data = FlutterwaveService.verify_transaction(transaction_id)
+            
+            tier_info = settings.SUBSCRIPTION_PRICING.get(tier)
+            if not tier_info:
+                return Response({'error': 'Invalid tier'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Check payment amount
+            paid_amount = float(payment_data.get('amount', 0))
+            required_amount = float(tier_info['price'])
+            
+            logger.info(f"Payment verification: paid={paid_amount}, required={required_amount}")
+            
+            if paid_amount < required_amount:
+                logger.error(f"Insufficient payment: {paid_amount} < {required_amount}")
+                return Response({'error': 'Insufficient payment amount'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Check payment status
+            payment_status = payment_data.get('status')
+            if payment_status != 'successful':
+                logger.error(f"Payment not successful: {payment_status}")
+                return Response({'error': f'Payment status: {payment_status}'}, status=status.HTTP_400_BAD_REQUEST)
+                
+            # Update Subscription
+            sub, _ = Subscription.objects.get_or_create(user=request.user)
+            old_tier = sub.tier
+            sub.previous_tier = old_tier
+            sub.tier_changed_at = timezone.now()
+            sub.tier = tier
+            sub.save()
+            
+            logger.info(f"Subscription updated: {old_tier} -> {tier}")
+            
+            # Log History
+            SubscriptionHistory.objects.create(
+                subscription=sub,
+                from_tier=old_tier,
+                to_tier=tier,
+                reason='upgrade'
+            )
+            
+            # Update Credits
+            creds, _ = UserCredits.objects.get_or_create(user=request.user, defaults={
+                'monthly_credits': 50,
+                'remaining_credits': 50,
+                'last_reset_date': timezone.now().date()
+            })
+            creds.monthly_credits = tier_info['credits']
+            creds.remaining_credits = tier_info['credits']
+            creds.save()
+            
+            logger.info(f"Credits updated: {tier_info['credits']}")
+            
+            return Response({
+                'status': 'success',
+                'tier': tier,
+                'remaining_credits': creds.remaining_credits
+            }, status=status.HTTP_200_OK)
+            
+        except PaymentVerificationError as e:
+            logger.error(f"Payment verification error: {str(e)}")
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.exception("Unexpected error during payment verification")
+            return Response({'error': 'Internal server error'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['post'], url_path='payment/initiate-topup')
+    def initiate_topup(self, request):
+        """Initiate payment for credit top-up."""
+        serializer = PaymentInitiateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+        sub = request.user.subscription
+        if not sub or sub.tier == SubscriptionTier.FREE:
+            return Response({'error': 'Must be on a paid tier to purchase top-up credits.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        package = serializer.validated_data.get('topup_package')
+        if not package:
+            return Response({'error': 'topup_package is required'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        package_info = settings.TOPUP_PACKAGES.get(package)
+        if not package_info:
+            return Response({'error': 'Invalid topup package'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        tx_ref = f"tx-top-{uuid.uuid4().hex}"
+        
+        CreditTopUp.objects.create(
+            user=request.user,
+            amount=package_info['credits'],
+            price_paid=package_info['price'],
+            payment_method='flutterwave',
+            transaction_id=tx_ref,
+            status='pending'
+        )
+        
+        response_data = {
+            'tx_ref': tx_ref,
+            'amount': package_info['price'],
+            'currency': 'USD',
+            'public_key': settings.FLUTTERWAVE_PUBLIC_KEY,
+            'customer_email': request.user.email,
+            'customer_name': request.user.display_name or request.user.email,
+        }
+        return Response(PaymentResponseSerializer(response_data).data)
+
+    @action(detail=False, methods=['post'], url_path='payment/verify-topup')
+    def verify_topup_payment(self, request):
+        """Verify credit top-up payment."""
+        serializer = PaymentVerifySerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+        transaction_id = serializer.validated_data['transaction_id']
+        # The internal db tx_ref can be extracted via FlutterwaveService... wait we might not need tx_ref here if verified returns it, or we rely on the amount.
+        
+        try:
+            payment_data = FlutterwaveService.verify_transaction(transaction_id)
+            tx_ref = payment_data.get('tx_ref')
+            
+            topup = CreditTopUp.objects.filter(transaction_id=tx_ref, status='pending').first()
+            if not topup:
+                return Response({'error': 'Pending topup not found'}, status=status.HTTP_400_BAD_REQUEST)
+                
+            if payment_data['amount'] < float(topup.price_paid):
+                 return Response({'error': 'Insufficient payment amount'}, status=status.HTTP_400_BAD_REQUEST)
+                 
+            topup.status = 'completed'
+            topup.save()
+            
+            creds = request.user.credits
+            creds.purchased_credits += topup.amount
+            creds.remaining_credits += topup.amount
+            creds.save()
+            
+            return Response({'status': 'success', 'remaining_credits': creds.remaining_credits})
+        except Exception as e:
+            logger.exception("Top-up verification failed")
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+

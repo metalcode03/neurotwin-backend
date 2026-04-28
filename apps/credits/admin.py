@@ -3,7 +3,11 @@ Django admin configuration for credits app.
 """
 
 from django.contrib import admin
-from django.utils.html import format_html
+from unfold.admin import ModelAdmin as UnfoldModelAdmin
+from unfold.decorators import display
+
+from neurotwin.admin_utils import format_credits
+
 from .models import (
     UserCredits,
     CreditUsageLog,
@@ -14,13 +18,13 @@ from .models import (
 
 
 @admin.register(UserCredits)
-class UserCreditsAdmin(admin.ModelAdmin):
+class UserCreditsAdmin(UnfoldModelAdmin):
     list_display = [
         'user',
-        'remaining_credits',
-        'monthly_credits',
-        'used_credits',
-        'purchased_credits',
+        'display_remaining_credits',
+        'display_monthly_credits',
+        'display_used_credits',
+        'display_purchased_credits',
         'last_reset_date',
         'created_at',
     ]
@@ -45,13 +49,29 @@ class UserCreditsAdmin(admin.ModelAdmin):
         }),
     )
 
+    @display(description="Remaining")
+    def display_remaining_credits(self, obj):
+        return format_credits(obj.remaining_credits)
+
+    @display(description="Monthly")
+    def display_monthly_credits(self, obj):
+        return format_credits(obj.monthly_credits)
+
+    @display(description="Used")
+    def display_used_credits(self, obj):
+        return format_credits(obj.used_credits)
+
+    @display(description="Purchased")
+    def display_purchased_credits(self, obj):
+        return format_credits(obj.purchased_credits)
+
 
 @admin.register(CreditUsageLog)
-class CreditUsageLogAdmin(admin.ModelAdmin):
+class CreditUsageLogAdmin(UnfoldModelAdmin):
     list_display = [
         'user',
         'operation_type',
-        'credits_consumed',
+        'display_credits_consumed',
         'brain_mode',
         'model_used',
         'timestamp',
@@ -76,15 +96,19 @@ class CreditUsageLogAdmin(admin.ModelAdmin):
         }),
     )
 
+    @display(description="Credits")
+    def display_credits_consumed(self, obj):
+        return format_credits(obj.credits_consumed)
+
 
 @admin.register(AIRequestLog)
-class AIRequestLogAdmin(admin.ModelAdmin):
+class AIRequestLogAdmin(UnfoldModelAdmin):
     list_display = [
         'user',
         'brain_mode',
         'model_used',
-        'credits_consumed',
-        'status',
+        'display_credits_consumed',
+        'display_status',
         'timestamp',
     ]
     list_filter = ['brain_mode', 'model_used', 'status', 'timestamp']
@@ -122,12 +146,30 @@ class AIRequestLogAdmin(admin.ModelAdmin):
         }),
     )
 
+    @display(
+        description="Status",
+        label={
+            "success": "success",
+            "failed": "danger",
+            "insufficient_credits": "warning",
+            "model_error": "danger",
+        },
+    )
+    def display_status(self, obj):
+        return obj.status
+
+    @display(description="Credits")
+    def display_credits_consumed(self, obj):
+        if obj.credits_consumed is not None:
+            return format_credits(obj.credits_consumed)
+        return "-"
+
 
 @admin.register(BrainRoutingConfig)
-class BrainRoutingConfigAdmin(admin.ModelAdmin):
+class BrainRoutingConfigAdmin(UnfoldModelAdmin):
     list_display = [
         'config_name',
-        'is_active',
+        'display_is_active',
         'created_by',
         'updated_at',
     ]
@@ -150,14 +192,24 @@ class BrainRoutingConfigAdmin(admin.ModelAdmin):
         }),
     )
 
+    @display(
+        description="Active",
+        label={
+            True: "success",
+            False: "danger",
+        },
+    )
+    def display_is_active(self, obj):
+        return obj.is_active
+
 
 @admin.register(CreditTopUp)
-class CreditTopUpAdmin(admin.ModelAdmin):
+class CreditTopUpAdmin(UnfoldModelAdmin):
     list_display = [
         'user',
-        'amount',
+        'display_amount',
         'payment_method',
-        'status',
+        'display_status',
         'created_at',
     ]
     list_filter = ['payment_method', 'status', 'created_at']
@@ -182,3 +234,19 @@ class CreditTopUpAdmin(admin.ModelAdmin):
         if obj:  # Editing existing object
             return self.readonly_fields + ('transaction_id',)
         return self.readonly_fields
+
+    @display(
+        description="Status",
+        label={
+            "pending": "warning",
+            "completed": "success",
+            "failed": "danger",
+            "refunded": "info",
+        },
+    )
+    def display_status(self, obj):
+        return obj.status
+
+    @display(description="Amount")
+    def display_amount(self, obj):
+        return format_credits(obj.amount)

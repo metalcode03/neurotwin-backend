@@ -410,3 +410,63 @@ class HealthCheckSerializer(serializers.Serializer):
     metrics = serializers.DictField(
         help_text="Performance metrics"
     )
+
+
+# Payment Serializers
+
+class PaymentInitiateSerializer(serializers.Serializer):
+    """
+    Serializer for initiating a Flutterwave payment.
+    """
+    tier = serializers.ChoiceField(
+        choices=['free', 'pro', 'twin_plus', 'executive'],
+        required=False,
+        help_text="Subscription tier to upgrade to"
+    )
+    topup_package = serializers.ChoiceField(
+        choices=['small', 'medium', 'large'],
+        required=False,
+        help_text="Credit top-up package to purchase"
+    )
+
+    def validate(self, attrs):
+        if not attrs.get('tier') and not attrs.get('topup_package'):
+            raise serializers.ValidationError("Either tier or topup_package must be provided.")
+        if attrs.get('tier') and attrs.get('topup_package'):
+            raise serializers.ValidationError("Cannot provide both tier and topup_package.")
+        return attrs
+
+
+class PaymentVerifySerializer(serializers.Serializer):
+    """
+    Serializer for verifying a Flutterwave payment.
+    """
+    transaction_id = serializers.CharField(
+        required=True,
+        help_text="Flutterwave transaction ID to verify"
+    )
+    tier = serializers.ChoiceField(
+        choices=['free', 'pro', 'twin_plus', 'executive'],
+        required=False
+    )
+    topup_package = serializers.ChoiceField(
+        choices=['small', 'medium', 'large'],
+        required=False
+    )
+
+    def validate(self, attrs):
+        if not (attrs.get('tier') or attrs.get('topup_package')):
+            raise serializers.ValidationError("Either tier or topup_package must be provided for verification routing.")
+        return attrs
+
+
+class PaymentResponseSerializer(serializers.Serializer):
+    """
+    Serializer for payment initialization response.
+    """
+    tx_ref = serializers.CharField()
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    currency = serializers.CharField(default="USD")
+    public_key = serializers.CharField()
+    customer_email = serializers.EmailField()
+    customer_name = serializers.CharField()

@@ -153,3 +153,15 @@ class ProviderRateLimitError(ProviderAPIError):
     
     def __init__(self, message: str = "Provider API rate limit exceeded"):
         super().__init__(message, status_code=429)
+
+
+class PaymentVerificationError(Exception):
+    """
+    Raised when payment gateway verification fails.
+    """
+    
+    def __init__(self, message: str = "Payment verification failed", provider_error: Optional[str] = None):
+        self.provider_error = provider_error
+        full_message = f"{message}: {provider_error}" if provider_error else message
+        super().__init__(full_message)
+
