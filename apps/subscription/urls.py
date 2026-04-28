@@ -12,6 +12,7 @@ from .views import (
     SubscriptionHistoryView,
     FeatureAccessView,
 )
+from .webhooks import FlutterwaveWebhookView
 
 app_name = 'subscription'
 
@@ -21,4 +22,5 @@ urlpatterns = [
     path('downgrade', SubscriptionDowngradeView.as_view(), name='downgrade'),
     path('history', SubscriptionHistoryView.as_view(), name='history'),
     path('features/<str:feature>', FeatureAccessView.as_view(), name='feature-access'),
+    path('webhook/flutterwave', FlutterwaveWebhookView.as_view(), name='flutterwave-webhook'),
 ]
