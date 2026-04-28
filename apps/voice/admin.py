@@ -3,11 +3,13 @@ Admin configuration for voice app.
 """
 
 from django.contrib import admin
+from unfold.admin import ModelAdmin as UnfoldModelAdmin
+
 from .models import VoiceProfile, CallRecord, VoiceApprovalHistory
 
 
 @admin.register(VoiceProfile)
-class VoiceProfileAdmin(admin.ModelAdmin):
+class VoiceProfileAdmin(UnfoldModelAdmin):
     """Admin for VoiceProfile model."""
     
     list_display = [
@@ -38,7 +40,7 @@ class VoiceProfileAdmin(admin.ModelAdmin):
 
 
 @admin.register(CallRecord)
-class CallRecordAdmin(admin.ModelAdmin):
+class CallRecordAdmin(UnfoldModelAdmin):
     """Admin for CallRecord model."""
     
     list_display = [
@@ -75,7 +77,7 @@ class CallRecordAdmin(admin.ModelAdmin):
 
 
 @admin.register(VoiceApprovalHistory)
-class VoiceApprovalHistoryAdmin(admin.ModelAdmin):
+class VoiceApprovalHistoryAdmin(UnfoldModelAdmin):
     """Admin for VoiceApprovalHistory model."""
     
     list_display = ['voice_profile', 'action', 'duration_minutes', 'timestamp']
