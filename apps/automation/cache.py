@@ -343,7 +343,8 @@ class MarketplaceCache:
             Set of integration type IDs (as strings) or None if not cached
         """
         cache_key = f"{cls.KEY_USER_INSTALLED_PREFIX}{user_id}"
-        return cache.get(cache_key)
+        result = cache.get(cache_key)
+        return set(result) if result is not None else None
     
     @classmethod
     def cache_user_installed(cls, user_id: int, integration_type_ids: set, ttl: int = TTL_USER_INSTALLED) -> None:
@@ -356,7 +357,8 @@ class MarketplaceCache:
             ttl: Time to live in seconds
         """
         cache_key = f"{cls.KEY_USER_INSTALLED_PREFIX}{user_id}"
-        cache.set(cache_key, integration_type_ids, ttl)
+        # Convert set to list because sets are not JSON serializable (using django_redis json serializer)
+        cache.set(cache_key, list(integration_type_ids), ttl)
         logger.debug(f"Cached user installed integrations: user_id={user_id}")
     
     @classmethod
