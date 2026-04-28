@@ -20,7 +20,13 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-dev-key-change-in-p
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'True').lower() in ('true', '1', 'yes')
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1,f238-2c0f-f5c0-620-324d-bdcd-6a0f-b212-463a.ngrok-free.app').split(',')
+# ALLOWED_HOSTS Configuration
+# In DEBUG mode, allow all ngrok domains automatically
+if DEBUG:
+    ALLOWED_HOSTS = ['*']  # Allow all hosts in debug mode (includes ngrok)
+else:
+    # In production, use explicit allowed hosts from environment
+    ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
 
 # CORS Configuration
@@ -35,6 +41,29 @@ CORS_ALLOWED_ORIGINS = [
 # Production domain (will be added when deployed)
 if not DEBUG:
     CORS_ALLOWED_ORIGINS.append('https://neurotwinai.com')
+
+# CSRF Trusted Origins
+# Required by Django 4.0+ for any non-default port or scheme.
+# This tells Django which origins are allowed to submit forms (including the admin).
+if DEBUG:
+    # In debug mode, disable CSRF for easier development with ngrok
+    CSRF_TRUSTED_ORIGINS = ['http://*', 'https://*']
+else:
+    # In production, use explicit trusted origins
+    CSRF_TRUSTED_ORIGINS = [
+        'http://localhost:8000',
+        'http://127.0.0.1:8000',
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+    ]
+    
+    if not DEBUG:
+        CSRF_TRUSTED_ORIGINS.append('https://neurotwinai.com')
+
+# Allow the CSRF cookie to be sent with same-site navigation (needed for admin)
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_HTTPONLY = False  # Must be False so JS can read it for API requests
+SESSION_COOKIE_SAMESITE = 'Lax'
 
 # Allow credentials (cookies, authorization headers)
 CORS_ALLOW_CREDENTIALS = True
@@ -70,6 +99,8 @@ CORS_PREFLIGHT_MAX_AGE = 3600
 # Application definition
 
 INSTALLED_APPS = [
+    'unfold',
+    'unfold.contrib.filters',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -98,6 +129,280 @@ INSTALLED_APPS = [
     'apps.credits',  # Credit-based AI usage tracking
 ]
 
+# django-unfold Admin Theme Configuration
+from django.templatetags.static import static
+from django.urls import reverse_lazy
+
+UNFOLD = {
+    "SITE_TITLE": "NeuroTwin AI Admin",
+    "SITE_HEADER": "NeuroTwin",
+    "SITE_URL": "/",
+    "SITE_LOGO": {
+        "light": lambda request: static("admin/img/logo-light.svg"),
+        "dark": lambda request: static("admin/img/logo-dark.svg"),
+    },
+    "SITE_ICON": {
+        "light": lambda request: static("admin/img/icon-light.svg"),
+        "dark": lambda request: static("admin/img/icon-dark.svg"),
+    },
+    "SITE_FAVICONS": [
+        {
+            "rel": "icon",
+            "sizes": "32x32",
+            "type": "image/svg+xml",
+            "href": lambda request: static("admin/img/favicon.svg"),
+        },
+    ],
+    "DASHBOARD_CALLBACK": "neurotwin.admin_dashboard.dashboard_callback",
+    "SHOW_HISTORY": True,
+    "SHOW_VIEW_ON_SITE": True,
+    "COLORS": {
+        "base": {
+            "50": "oklch(98.5% .002 247.839)",
+            "100": "oklch(96.7% .003 264.542)",
+            "200": "oklch(92.8% .006 264.531)",
+            "300": "oklch(87.2% .01 258.338)",
+            "400": "oklch(70.7% .022 261.325)",
+            "500": "oklch(55.1% .027 264.364)",
+            "600": "oklch(44.6% .03 256.802)",
+            "700": "oklch(37.3% .034 259.733)",
+            "800": "oklch(27.8% .033 256.848)",
+            "900": "oklch(21% .034 264.665)",
+            "950": "oklch(13% .028 261.692)",
+        },
+        "primary": {
+            "50": "oklch(97.5% .01 280)",
+            "100": "oklch(94% .025 280)",
+            "200": "oklch(88% .055 275)",
+            "300": "oklch(80% .1 270)",
+            "400": "oklch(70% .17 265)",
+            "500": "oklch(60% .22 262)",
+            "600": "oklch(52% .24 260)",
+            "700": "oklch(45% .22 262)",
+            "800": "oklch(38% .18 265)",
+            "900": "oklch(32% .14 268)",
+            "950": "oklch(24% .1 270)",
+        },
+        "font": {
+            "subtle-light": "var(--color-base-500)",
+            "subtle-dark": "var(--color-base-400)",
+            "default-light": "var(--color-base-600)",
+            "default-dark": "var(--color-base-300)",
+            "important-light": "var(--color-base-900)",
+            "important-dark": "var(--color-base-100)",
+        },
+    },
+    "SIDEBAR": {
+        "show_search": True,
+        "show_all_applications": False,
+        "navigation": [
+            {
+                "title": "Users & Auth",
+                "icon": "people",
+                "items": [
+                    {
+                        "title": "Users",
+                        "icon": "person",
+                        "link": reverse_lazy("admin:authentication_user_changelist"),
+                    },
+                    {
+                        "title": "Verification Tokens",
+                        "icon": "verified",
+                        "link": reverse_lazy("admin:authentication_verificationtoken_changelist"),
+                    },
+                    {
+                        "title": "Password Reset Tokens",
+                        "icon": "lock_reset",
+                        "link": reverse_lazy("admin:authentication_passwordresettoken_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": "Subscriptions & Billing",
+                "icon": "payments",
+                "items": [
+                    {
+                        "title": "Subscriptions",
+                        "icon": "card_membership",
+                        "link": reverse_lazy("admin:subscription_subscription_changelist"),
+                    },
+                    {
+                        "title": "Subscription History",
+                        "icon": "history",
+                        "link": reverse_lazy("admin:subscription_subscriptionhistory_changelist"),
+                    },
+                    {
+                        "title": "Payment Transactions",
+                        "icon": "receipt_long",
+                        "link": reverse_lazy("admin:subscription_paymenttransaction_changelist"),
+                    },
+                    {
+                        "title": "Webhook Logs",
+                        "icon": "webhook",
+                        "link": reverse_lazy("admin:subscription_webhooklog_changelist"),
+                    },
+                    {
+                        "title": "Credit Top-Ups",
+                        "icon": "add_card",
+                        "link": reverse_lazy("admin:credits_credittopup_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": "AI & Credits",
+                "icon": "psychology",
+                "items": [
+                    {
+                        "title": "User Credits",
+                        "icon": "account_balance_wallet",
+                        "link": reverse_lazy("admin:credits_usercredits_changelist"),
+                    },
+                    {
+                        "title": "Credit Usage Logs",
+                        "icon": "data_usage",
+                        "link": reverse_lazy("admin:credits_creditusagelog_changelist"),
+                    },
+                    {
+                        "title": "AI Request Logs",
+                        "icon": "smart_toy",
+                        "link": reverse_lazy("admin:credits_airequestlog_changelist"),
+                    },
+                    {
+                        "title": "Brain Routing Config",
+                        "icon": "route",
+                        "link": reverse_lazy("admin:credits_brainroutingconfig_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": "Twin & Cognition",
+                "icon": "neurology",
+                "items": [
+                    {
+                        "title": "Twins",
+                        "icon": "face",
+                        "link": reverse_lazy("admin:twin_twin_changelist"),
+                    },
+                    {
+                        "title": "Onboarding Progress",
+                        "icon": "checklist",
+                        "link": reverse_lazy("admin:twin_onboardingprogress_changelist"),
+                    },
+                    {
+                        "title": "CSM Profiles",
+                        "icon": "fingerprint",
+                        "link": reverse_lazy("admin:csm_csmprofile_changelist"),
+                    },
+                    {
+                        "title": "CSM Change Logs",
+                        "icon": "change_history",
+                        "link": reverse_lazy("admin:csm_csmchangelog_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": "Memory & Learning",
+                "icon": "memory",
+                "items": [
+                    {
+                        "title": "Memory Records",
+                        "icon": "storage",
+                        "link": reverse_lazy("admin:memory_memoryrecord_changelist"),
+                    },
+                    {
+                        "title": "Memory Access Logs",
+                        "icon": "query_stats",
+                        "link": reverse_lazy("admin:memory_memoryaccesslog_changelist"),
+                    },
+                    {
+                        "title": "Learning Events",
+                        "icon": "school",
+                        "link": reverse_lazy("admin:learning_learningevent_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": "Safety & Audit",
+                "icon": "shield",
+                "items": [
+                    {
+                        "title": "Permission Scopes",
+                        "icon": "admin_panel_settings",
+                        "link": reverse_lazy("admin:safety_permissionscope_changelist"),
+                    },
+                    {
+                        "title": "Permission History",
+                        "icon": "manage_history",
+                        "link": reverse_lazy("admin:safety_permissionhistory_changelist"),
+                    },
+                    {
+                        "title": "Audit Logs",
+                        "icon": "policy",
+                        "link": reverse_lazy("admin:twin_auditlog_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": "Automation",
+                "icon": "bolt",
+                "items": [
+                    {
+                        "title": "Integration Types",
+                        "icon": "extension",
+                        "link": reverse_lazy("admin:automation_integrationtypemodel_changelist"),
+                    },
+                    {
+                        "title": "Automation Templates",
+                        "icon": "description",
+                        "link": reverse_lazy("admin:automation_automationtemplate_changelist"),
+                    },
+                    {
+                        "title": "Integrations",
+                        "icon": "hub",
+                        "link": reverse_lazy("admin:automation_integration_changelist"),
+                    },
+                    {
+                        "title": "Webhook Events",
+                        "icon": "webhook",
+                        "link": reverse_lazy("admin:automation_webhookevent_changelist"),
+                    },
+                    {
+                        "title": "Messages",
+                        "icon": "chat",
+                        "link": reverse_lazy("admin:automation_message_changelist"),
+                    },
+                    {
+                        "title": "Conversations",
+                        "icon": "forum",
+                        "link": reverse_lazy("admin:automation_conversation_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": "Voice",
+                "icon": "call",
+                "items": [
+                    {
+                        "title": "Voice Profiles",
+                        "icon": "record_voice_over",
+                        "link": reverse_lazy("admin:voice_voiceprofile_changelist"),
+                    },
+                    {
+                        "title": "Call Records",
+                        "icon": "phone_in_talk",
+                        "link": reverse_lazy("admin:voice_callrecord_changelist"),
+                    },
+                    {
+                        "title": "Voice Approval History",
+                        "icon": "approval",
+                        "link": reverse_lazy("admin:voice_voiceapprovalhistory_changelist"),
+                    },
+                ],
+            },
+        ],
+    },
+}
+
 # Custom User Model
 AUTH_USER_MODEL = 'authentication.User'
 
@@ -123,7 +428,7 @@ ROOT_URLCONF = 'neurotwin.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -270,6 +575,8 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_DIRS = [BASE_DIR / 'static']
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/6.0/ref/settings/#default-auto-field
@@ -698,6 +1005,27 @@ LOGGING = {
         'handlers': ['console', 'file_json'],
         'level': 'INFO',
     },
+}
+
+# Payment Gateway Configuration
+FLUTTERWAVE_PUBLIC_KEY = os.getenv('FLUTTERWAVE_PUBLIC_KEY', '')
+FLUTTERWAVE_SECRET_KEY = os.getenv('FLUTTERWAVE_SECRET_KEY', '')
+FLUTTERWAVE_ENCRYPTION_KEY = os.getenv('FLUTTERWAVE_ENCRYPTION_KEY', '')
+FLUTTERWAVE_SECRET_HASH = os.getenv('FLUTTERWAVE_SECRET_HASH', '')
+
+# Subscription Pricing ($ amounts)
+SUBSCRIPTION_PRICING = {
+    'free': {'price': 0, 'credits': 50},
+    'pro': {'price': 20, 'credits': 2000},
+    'twin_plus': {'price': 50, 'credits': 5000},
+    'executive': {'price': 100, 'credits': 10000},
+}
+
+# Top-up Packages ($ amounts)
+TOPUP_PACKAGES = {
+    'small': {'price': 5, 'credits': 500},
+    'medium': {'price': 10, 'credits': 1000},
+    'large': {'price': 20, 'credits': 2500},
 }
 
 
