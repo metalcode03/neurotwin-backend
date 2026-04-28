@@ -3,11 +3,13 @@ Django admin configuration for Twin app.
 """
 
 from django.contrib import admin
+from unfold.admin import ModelAdmin as UnfoldModelAdmin
+
 from .models import Twin, OnboardingProgress, AuditLog
 
 
 @admin.register(Twin)
-class TwinAdmin(admin.ModelAdmin):
+class TwinAdmin(UnfoldModelAdmin):
     """Admin configuration for Twin model."""
     
     list_display = [
@@ -36,7 +38,7 @@ class TwinAdmin(admin.ModelAdmin):
 
 
 @admin.register(OnboardingProgress)
-class OnboardingProgressAdmin(admin.ModelAdmin):
+class OnboardingProgressAdmin(UnfoldModelAdmin):
     """Admin configuration for OnboardingProgress model."""
     
     list_display = [
@@ -47,16 +49,13 @@ class OnboardingProgressAdmin(admin.ModelAdmin):
     readonly_fields = ['id', 'started_at', 'updated_at']
 
 
-
 @admin.register(AuditLog)
-class AuditLogAdmin(admin.ModelAdmin):
+class AuditLogAdmin(UnfoldModelAdmin):
     """
     Admin configuration for AuditLog model.
     
     Provides filtering, searching, and viewing of audit logs
     in chronological order.
-    
-    Requirements: 8.2
     """
     
     list_display = [
@@ -67,7 +66,7 @@ class AuditLogAdmin(admin.ModelAdmin):
         'action',
         'result',
         'initiated_by_twin',
-        'requires_attention',
+        'display_requires_attention',
     ]
     
     list_filter = [
@@ -145,10 +144,10 @@ class AuditLogAdmin(admin.ModelAdmin):
         }),
     ]
     
-    # Ordering by most recent first
     ordering = ['-timestamp']
+    list_per_page = 50
+    date_hierarchy = 'timestamp'
     
-    # Disable add/edit/delete permissions (audit logs are immutable)
     def has_add_permission(self, request):
         """Audit logs cannot be manually created."""
         return False
@@ -161,15 +160,8 @@ class AuditLogAdmin(admin.ModelAdmin):
         """Audit logs cannot be deleted."""
         return False
     
-    # Custom display methods
-    def requires_attention(self, obj):
+    def display_requires_attention(self, obj):
         """Display whether this log requires attention."""
         return obj.requires_attention
-    requires_attention.boolean = True
-    requires_attention.short_description = 'Needs Attention'
-    
-    # Pagination
-    list_per_page = 50
-    
-    # Date hierarchy for easy navigation
-    date_hierarchy = 'timestamp'
+    display_requires_attention.boolean = True
+    display_requires_attention.short_description = 'Needs Attention'
