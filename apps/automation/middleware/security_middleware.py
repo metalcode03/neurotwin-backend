@@ -8,7 +8,7 @@ Requirements: 33.3, 33.4, 33.6
 import json
 import logging
 from typing import Callable
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse, QueryDict
 from django.utils.deprecation import MiddlewareMixin
 from django.views.decorators.csrf import csrf_exempt
 from django.middleware.csrf import CsrfViewMiddleware
@@ -62,11 +62,26 @@ class InputSanitizationMiddleware(MiddlewareMixin):
                 # Let the view handle invalid JSON
                 pass
         
-        # Sanitize POST data
+        # Sanitize POST data, but NEVER touch the CSRF token —
+        # replacing the QueryDict with a plain dict causes all values to be
+        # wrapped in lists, which breaks Django's CSRF length check.
         if request.POST:
-            sanitized_post = InputSanitizer.sanitize_dict(dict(request.POST))
-            request.POST = sanitized_post
-        
+            # Keys that must be passed through unchanged
+            PROTECTED_KEYS = {'csrfmiddlewaretoken'}
+
+            mutable_post = request.POST.copy()   # copy() returns a mutable QueryDict
+            for key in list(mutable_post.keys()):
+                if key in PROTECTED_KEYS:
+                    continue
+                raw_values = mutable_post.getlist(key)
+                sanitized_values = [
+                    InputSanitizer.sanitize_string(v) if isinstance(v, str) else v
+                    for v in raw_values
+                ]
+                mutable_post.setlist(key, sanitized_values)
+
+            request.POST = mutable_post
+
         return None
 
 
